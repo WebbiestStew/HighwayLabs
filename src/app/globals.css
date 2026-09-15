@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+:root {
+  /* Surfaces — slate/zinc dark CAD terminal */
+  --surface-0: #09090b;   /* app background */
+  --surface-1: #0f1115;   /* panel background */
+  --surface-2: #15181e;   /* card / drawer */
+  --surface-3: #1c2028;   /* elevated / hover */
+  --surface-4: #262b35;   /* input fields */
+  --border-hairline: #262b34;
+  --border-strong: #34394480;
+
+  --text-primary: #d4d8de;
+  --text-secondary: #838a97;
+  --text-tertiary: #565d68;
+  --text-disabled: #3a3f48;
+
+  /* Engineering status accents */
+  --accent-geometry: #22d3ee;    /* cyan — geometry / active */
+  --accent-geometry-dim: #0e7490;
+  --accent-warning: #f59e0b;     /* amber — warnings / thresholds */
+  --accent-warning-dim: #92610a;
+  --accent-compliance: #10b981;  /* emerald — AASHTO/HCM pass */
+  --accent-compliance-dim: #05704f;
+  --accent-critical: #ef4444;    /* crimson — safety violation */
+  --accent-critical-dim: #8a1f1f;
+
+  /* Grid */
+  --grid-line: #1a1e25;
+  --grid-line-major: #262b34;
+  --grid-axis: #3a4048;
+
+  --font-mono-stack: var(--font-jetbrains-mono), "JetBrains Mono", "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+@theme inline {
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-surface-4: var(--surface-4);
+  --color-border-hairline: var(--border-hairline);
+  --color-border-strong: var(--border-strong);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-disabled: var(--text-disabled);
+  --color-cyan: var(--accent-geometry);
+  --color-amber: var(--accent-warning);
+  --color-emerald: var(--accent-compliance);
+  --color-crimson: var(--accent-critical);
+  --font-mono: var(--font-mono-stack);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font-family: var(--font-mono-stack);
+  font-size: 12px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--accent-geometry);
+  color: #04141a;
+}
+
+/* Sub-pixel engineering gridlines */
+.engineering-grid {
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to right, var(--grid-line-major) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line-major) 1px, transparent 1px);
+  background-size: 8px 8px, 8px 8px, 80px 80px, 80px 80px;
+  background-position: -0.5px -0.5px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--surface-1);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--surface-4);
+  border: 2px solid var(--surface-1);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  opacity: 1;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes flash-crimson {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.animate-flash-crimson {
+  animation: flash-crimson 1s ease-in-out infinite;
+}
