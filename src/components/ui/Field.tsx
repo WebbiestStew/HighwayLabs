@@ -1,5 +1,9 @@
 "use client";
 
+function fmtHint(n: number): string {
+  return Math.abs(n) >= 1000 ? n.toLocaleString("en-US", { maximumFractionDigits: 0 }) : String(n);
+}
+
 export function NumberField({
   label,
   value,
@@ -9,6 +13,7 @@ export function NumberField({
   step = 0.1,
   unit,
   accent = "text-text-primary",
+  error,
 }: {
   label: string;
   value: number;
@@ -18,11 +23,32 @@ export function NumberField({
   step?: number;
   unit?: string;
   accent?: string;
+  error?: string;
 }) {
+  const rangeHint =
+    min != null && max != null
+      ? `${fmtHint(min)}–${fmtHint(max)}`
+      : min != null
+        ? `≥${fmtHint(min)}`
+        : max != null
+          ? `≤${fmtHint(max)}`
+          : null;
+
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[10px] uppercase tracking-wide text-text-tertiary">{label}</span>
-      <div className="flex items-center gap-1 rounded-sm border border-border-hairline bg-surface-4 px-2 py-1.5 focus-within:border-cyan/50">
+      <span className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-text-tertiary">
+        <span className="truncate">{label}</span>
+        {error ? (
+          <span className="shrink-0 normal-case text-crimson">{error}</span>
+        ) : (
+          rangeHint && <span className="shrink-0 normal-case text-text-disabled">{rangeHint}</span>
+        )}
+      </span>
+      <div
+        className={`flex items-center gap-1 rounded-sm border bg-surface-4 px-2 py-1.5 focus-within:border-cyan/50 ${
+          error ? "border-crimson/60" : "border-border-hairline"
+        }`}
+      >
         <input
           type="number"
           value={Number.isFinite(value) ? value : 0}

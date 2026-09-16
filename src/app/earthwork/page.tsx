@@ -1,33 +1,45 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ModuleShell from "@/components/layout/ModuleShell";
 import CalcDrawer, { type CalcStep } from "@/components/layout/CalcDrawer";
 import { NumberField, ToggleGroup, SectionLabel } from "@/components/ui/Field";
-import { LedgerRow, StatusPill, Panel } from "@/components/ui/Ledger";
+import { LedgerRow, StatusPill, Panel, ValidationBanner, HeroMetric } from "@/components/ui/Ledger";
 import MassHaulCanvas from "@/components/canvas/MassHaulCanvas";
-import { useProjectStore, DESIGN_VEHICLE_LABELS } from "@/lib/store";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { useProjectStore, DESIGN_VEHICLE_LABELS, DESIGN_STANDARD_LABELS } from "@/lib/store";
+import { useCorridorStore } from "@/lib/corridorStore";
 import { computeEarthwork, computeLoops, type StationRow, type SoilClass } from "@/lib/engineering/earthwork";
 import { fmt, formatStation } from "@/lib/units";
 import { generateMemoPdf } from "@/lib/export/memo";
 import { downloadCsv } from "@/lib/export/download";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, RefreshCw } from "lucide-react";
+import { earthworkControlsSchema } from "@/lib/schemas/earthwork";
+import { validateInputs } from "@/lib/validation";
+import { usePersistedForm } from "@/lib/persistence";
+import { captureCanvasImage, findCanvas } from "@/lib/export/captureImage";
 
-function makeDefaultRows(): StationRow[] {
-  const cuts = [0, 120, 260, 340, 210, 60, 0, 0, 40, 180, 310, 260, 90, 0];
-  const fills = [10, 0, 0, 0, 40, 160, 280, 320, 200, 50, 0, 0, 30, 150];
-  return cuts.map((c, i) => ({
-    id: `r${i}`,
-    stationFt: 1000 + i * 500,
+const CUT_SHAPE = [0, 120, 260, 340, 210, 60, 0, 0, 40, 180, 310, 260, 90, 0];
+const FILL_SHAPE = [10, 0, 0, 0, 40, 160, 280, 320, 200, 50, 0, 0, 30, 150];
+
+/** Evenly spaces the illustrative cut/fill shape across a given station range. */
+function makeRowsForRange(startFt: number, endFt: number): StationRow[] {
+  const count = CUT_SHAPE.length;
+  const step = (endFt - startFt) / (count - 1 || 1);
+  return CUT_SHAPE.map((c, i) => ({
+    id: `r${Date.now()}_${i}`,
+    stationFt: startFt + i * step,
     cutAreaSqFt: c,
-    fillAreaSqFt: fills[i],
+    fillAreaSqFt: FILL_SHAPE[i],
   }));
 }
 
 export default function EarthworkPage() {
-  const { corridorName, unitSystem, designSpeedMph, designVehicle } = useProjectStore();
+  const { corridorName, unitSystem, designSpeedMph, designVehicle, designStandard, stationStart, stationEnd } = useProjectStore();
+  const horizontalSummary = useCorridorStore((s) => s.horizontal);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
 
-  const [rows, setRows] = useState<StationRow[]>(makeDefaultRows());
+  const [rows, setRows] = useState<StationRow[]>(() => makeRowsForRange(stationStart, stationEnd));
   const [soilClass, setSoilClass] = useState<SoilClass>("common-soil");
   const [shrinkagePercent, setShrinkagePercent] = useState(15);
   const [swellPercent, setSwellPercent] = useState(20);
@@ -64,6 +76,29 @@ export default function EarthworkPage() {
   const totalOverhaulCost = loops.reduce((s, l) => s + l.overhaulCost, 0);
   const grandTotal = results.grandTotalCost + totalOverhaulCost;
 
+  const publishEarthwork = useCorridorStore((s) => s.publishEarthwork);
+  useEffect(() => {
+    if (rows.length === 0) return;
+    const stations = rows.map((r) => r.stationFt);
+    publishEarthwork({
+      startStationFt: Math.min(...stations),
+      endStationFt: Math.max(...stations),
+      netEndOrdinateCy: results.netEndOrdinateCy,
+      borrowRequiredCy: results.borrowRequiredCy,
+      wasteRequiredCy: results.wasteRequiredCy,
+      grandTotalCost: grandTotal,
+    });
+  }, [rows, results.netEndOrdinateCy, results.borrowRequiredCy, results.wasteRequiredCy, grandTotal, publishEarthwork]);
+
+  const controlInputs = { shrinkagePercent, swellPercent, excavationCost, freeHaulDistanceFt, overhaulCost, borrowCost, wasteCost };
+  const validation = useMemo(() => validateInputs(earthworkControlsSchema, controlInputs), [JSON.stringify(controlInputs)]);
+
+  usePersistedForm(
+    "highwaylab.earthwork",
+    { rows, soilClass, applyPrismoidal, balanceLevelCy, ...controlInputs },
+    { rows: setRows, soilClass: setSoilClass, applyPrismoidal: setApplyPrismoidal, balanceLevelCy: setBalanceLevelCy, shrinkagePercent: setShrinkagePercent, swellPercent: setSwellPercent, excavationCost: setExcavationCost, freeHaulDistanceFt: setFreeHaulDistanceFt, overhaulCost: setOverhaulCost, borrowCost: setBorrowCost, wasteCost: setWasteCost }
+  );
+
   function updateRow(id: string, patch: Partial<StationRow>) {
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   }
@@ -73,6 +108,9 @@ export default function EarthworkPage() {
   }
   function removeRow(id: string) {
     setRows((rs) => rs.filter((r) => r.id !== id));
+  }
+  function syncToCorridorRange() {
+    setRows(makeRowsForRange(stationStart, stationEnd));
   }
 
   const steps: CalcStep[] = [
@@ -114,7 +152,9 @@ export default function EarthworkPage() {
     })),
   ];
 
-  function handleExportMemo() {
+  async function handleExportMemo() {
+    const img = captureCanvasImage(findCanvas(canvasContainerRef.current), "Interactive Mass-Haul Diagram");
+
     generateMemoPdf({
       moduleTitle: "Earthwork — Prismoidal / End-Area & Mass-Haul Balance",
       corridorName,
@@ -122,6 +162,8 @@ export default function EarthworkPage() {
       designVehicleLabel: DESIGN_VEHICLE_LABELS[designVehicle],
       stationRangeLabel: rows.length ? `${formatStation(rows[0].stationFt, unitSystem)} – ${formatStation(rows[rows.length - 1].stationFt, unitSystem)}` : "N/A",
       unitSystemLabel: unitSystem.toUpperCase(),
+      governingStandardLabel: DESIGN_STANDARD_LABELS[designStandard],
+      images: img ? [img] : [],
       inputs: [
         { label: "Soil classification", value: soilClass },
         { label: "Shrinkage %", value: `${shrinkagePercent}%` },
@@ -176,19 +218,19 @@ export default function EarthworkPage() {
               { value: "rock", label: "Rock" },
             ]}
           />
-          <NumberField label="Shrinkage Factor" value={shrinkagePercent} min={10} max={25} step={1} onChange={setShrinkagePercent} unit="%" />
-          <NumberField label="Rock Swell Factor" value={swellPercent} min={15} max={35} step={1} onChange={setSwellPercent} unit="%" />
+          <NumberField label="Shrinkage Factor" value={shrinkagePercent} min={10} max={25} step={1} onChange={setShrinkagePercent} unit="%" error={validation.errors.shrinkagePercent} />
+          <NumberField label="Rock Swell Factor" value={swellPercent} min={15} max={35} step={1} onChange={setSwellPercent} unit="%" error={validation.errors.swellPercent} />
           <label className="flex items-center gap-2 text-[11px] text-text-secondary">
             <input type="checkbox" checked={applyPrismoidal} onChange={(e) => setApplyPrismoidal(e.target.checked)} />
             Apply prismoidal correction
           </label>
 
           <SectionLabel>Cost & Haul Economics</SectionLabel>
-          <NumberField label="Excavation Unit Cost" value={excavationCost} step={0.25} onChange={setExcavationCost} unit="$/CY" />
-          <NumberField label="Free-Haul Distance" value={freeHaulDistanceFt} step={50} onChange={setFreeHaulDistanceFt} unit="ft" />
-          <NumberField label="Overhaul Unit Cost" value={overhaulCost} step={0.05} onChange={setOverhaulCost} unit="$/sta-yd" />
-          <NumberField label="Borrow Unit Cost" value={borrowCost} step={0.5} onChange={setBorrowCost} unit="$/CY" />
-          <NumberField label="Waste Unit Cost" value={wasteCost} step={0.5} onChange={setWasteCost} unit="$/CY" />
+          <NumberField label="Excavation Unit Cost" value={excavationCost} step={0.25} onChange={setExcavationCost} unit="$/CY" error={validation.errors.excavationCost} />
+          <NumberField label="Free-Haul Distance" value={freeHaulDistanceFt} step={50} onChange={setFreeHaulDistanceFt} unit="ft" error={validation.errors.freeHaulDistanceFt} />
+          <NumberField label="Overhaul Unit Cost" value={overhaulCost} step={0.05} onChange={setOverhaulCost} unit="$/sta-yd" error={validation.errors.overhaulCost} />
+          <NumberField label="Borrow Unit Cost" value={borrowCost} step={0.5} onChange={setBorrowCost} unit="$/CY" error={validation.errors.borrowCost} />
+          <NumberField label="Waste Unit Cost" value={wasteCost} step={0.5} onChange={setWasteCost} unit="$/CY" error={validation.errors.wasteCost} />
 
           <SectionLabel>Balance Line</SectionLabel>
           <NumberField label="Balance Level (drag on chart)" value={Math.round(balanceLevelCy)} step={10} onChange={setBalanceLevelCy} unit="CY" />
@@ -200,15 +242,24 @@ export default function EarthworkPage() {
           title="Station Cross-Section Ledger"
           className="max-h-[220px]"
           actions={
-            <button onClick={addRow} className="flex items-center gap-1 rounded-sm border border-border-hairline px-2 py-1 text-[10px] text-cyan hover:border-cyan/40">
-              <Plus size={11} /> ADD STATION
-            </button>
+            <div className="flex gap-1.5">
+              <button
+                onClick={syncToCorridorRange}
+                title={`Regenerate the station ledger evenly across the project's corridor range (${formatStation(stationStart, unitSystem)} – ${formatStation(stationEnd, unitSystem)})`}
+                className="flex items-center gap-1 rounded-sm border border-border-hairline px-2 py-1 text-[10px] text-text-secondary hover:border-cyan/40 hover:text-cyan"
+              >
+                <RefreshCw size={11} /> SYNC TO CORRIDOR RANGE
+              </button>
+              <button onClick={addRow} className="flex items-center gap-1 rounded-sm border border-border-hairline px-2 py-1 text-[10px] text-cyan hover:border-cyan/40">
+                <Plus size={11} /> ADD STATION
+              </button>
+            </div>
           }
         >
-          <div className="overflow-x-auto">
+          <div tabIndex={0} className="overflow-x-auto">
             <table className="w-full text-[11px]">
               <thead>
-                <tr className="text-left text-[9px] uppercase tracking-wide text-text-tertiary">
+                <tr className="text-left text-[10px] uppercase tracking-wide text-text-tertiary">
                   <th className="pb-1">Station (ft)</th>
                   <th className="pb-1">Cut Area (sf)</th>
                   <th className="pb-1">Fill Area (sf)</th>
@@ -221,6 +272,7 @@ export default function EarthworkPage() {
                     <td className="py-1 pr-2">
                       <input
                         type="number"
+                        aria-label={`Station for row at ${formatStation(r.stationFt, unitSystem)}`}
                         value={r.stationFt}
                         onChange={(e) => updateRow(r.id, { stationFt: Number(e.target.value) })}
                         className="w-24 bg-transparent tabular-nums text-text-primary outline-none"
@@ -229,6 +281,7 @@ export default function EarthworkPage() {
                     <td className="py-1 pr-2">
                       <input
                         type="number"
+                        aria-label={`Cut area at ${formatStation(r.stationFt, unitSystem)}`}
                         value={r.cutAreaSqFt}
                         onChange={(e) => updateRow(r.id, { cutAreaSqFt: Number(e.target.value) })}
                         className="w-20 bg-transparent tabular-nums text-emerald outline-none"
@@ -237,13 +290,18 @@ export default function EarthworkPage() {
                     <td className="py-1 pr-2">
                       <input
                         type="number"
+                        aria-label={`Fill area at ${formatStation(r.stationFt, unitSystem)}`}
                         value={r.fillAreaSqFt}
                         onChange={(e) => updateRow(r.id, { fillAreaSqFt: Number(e.target.value) })}
                         className="w-20 bg-transparent tabular-nums text-amber outline-none"
                       />
                     </td>
                     <td>
-                      <button onClick={() => removeRow(r.id)} className="text-text-tertiary hover:text-crimson">
+                      <button
+                        onClick={() => removeRow(r.id)}
+                        aria-label={`Delete row at ${formatStation(r.stationFt, unitSystem)}`}
+                        className="text-text-tertiary hover:text-crimson"
+                      >
                         <Trash2 size={12} />
                       </button>
                     </td>
@@ -256,21 +314,44 @@ export default function EarthworkPage() {
 
         <div className="grid min-h-0 grid-cols-[1fr_320px] gap-3">
           <Panel title="Interactive Mass-Haul Diagram (drag red line to set balance)">
-            <div className="h-full w-full rounded-sm border border-border-hairline">
-              <MassHaulCanvas
-                massHaul={results.massHaul}
-                loops={loops}
-                balanceLevelCy={balanceLevelCy}
-                onBalanceLevelChange={setBalanceLevelCy}
-                unitSystem={unitSystem}
-              />
+            <div ref={canvasContainerRef} className="h-full w-full rounded-sm border border-border-hairline">
+              <ErrorBoundary label="Mass-Haul Diagram">
+                <MassHaulCanvas
+                  massHaul={results.massHaul}
+                  loops={loops}
+                  balanceLevelCy={balanceLevelCy}
+                  onBalanceLevelChange={setBalanceLevelCy}
+                  unitSystem={unitSystem}
+                />
+              </ErrorBoundary>
             </div>
           </Panel>
 
-          <div className="flex flex-col gap-3 overflow-y-auto">
+          <div tabIndex={0} className="flex flex-col gap-3 overflow-y-auto">
             <div className="flex flex-wrap gap-1.5">
               <StatusPill status={results.netEndOrdinateCy >= 0 ? "ok" : "warn"} label={results.netEndOrdinateCy >= 0 ? "NET SURPLUS (WASTE)" : "NET DEFICIT (BORROW)"} />
             </div>
+            <HeroMetric
+              label="Total Project Earthwork Cost"
+              value={`$${fmt(grandTotal, 0)}`}
+              status="neutral"
+              comparison={
+                results.netEndOrdinateCy >= 0
+                  ? `net surplus — ${fmt(results.wasteRequiredCy, 0)} CY waste`
+                  : `net deficit — ${fmt(results.borrowRequiredCy, 0)} CY borrow`
+              }
+            />
+            <ValidationBanner errors={validation.errors} />
+            {horizontalSummary && (
+              <Panel title="Corridor Reference (from Module 1)">
+                <LedgerRow
+                  label="Typical Section Width"
+                  value={fmt(horizontalSummary.pavementWidthFt, 1)}
+                  unit="ft / direction"
+                  approx="Reference only — lanesPerDirection × laneWidthFt from the Horizontal Alignment module. Use it as a guide when estimating cut/fill cross-sectional areas by hand; this tool has no terrain/ground-survey model, so areas are still entered manually."
+                />
+              </Panel>
+            )}
             <Panel title="Volume & Cost Summary">
               <LedgerRow label="Total Cut Volume" value={fmt(results.totalCutCy, 0)} unit="CY" />
               <LedgerRow label="Total Fill Volume" value={fmt(results.totalFillCy, 0)} unit="CY" />

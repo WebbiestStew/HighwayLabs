@@ -12,9 +12,12 @@ interface Props {
   unitSystem: UnitSystem;
 }
 
+const HOVER_THRESHOLD_PX = 10;
+
 export default function MassHaulCanvas({ massHaul, loops, balanceLevelCy, onBalanceLevelChange, unitSystem }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [dragging, setDragging] = useState(false);
+  const [nearLine, setNearLine] = useState(false);
   const scaleRef = useRef<{ sx: (s: number) => number; sy: (v: number) => number; ySy: (py: number) => number } | null>(null);
 
   useEffect(() => {
@@ -114,19 +117,37 @@ export default function MassHaulCanvas({ massHaul, loops, balanceLevelCy, onBala
       }
     }
 
-    // balance line (draggable)
+    // balance line (draggable) — highlighted while hovered/dragged so the
+    // interaction is discoverable without reading the panel subtitle
     const balY = sy(balanceLevelCy);
-    ctx.strokeStyle = "#ef4444";
-    ctx.lineWidth = 1.5;
+    const active = dragging || nearLine;
+    ctx.strokeStyle = active ? "#ff6b6b" : "#ef4444";
+    ctx.lineWidth = active ? 2.5 : 1.5;
     ctx.setLineDash([6, 3]);
     ctx.beginPath();
     ctx.moveTo(margin.l, balY);
     ctx.lineTo(w - margin.r, balY);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = "#ef4444";
-    ctx.fillRect(w - margin.r - 4, balY - 5, 8, 10);
-    ctx.fillText(`BALANCE  ${balanceLevelCy.toFixed(0)} CY`, margin.l + 4, balY - 5);
+
+    // grip handle — a small pill with three dots, always visible on the
+    // left margin so the line reads as draggable at a glance, not just on hover
+    const gripW = 22;
+    const gripH = 14;
+    const gripX = margin.l - gripW - 6;
+    ctx.fillStyle = active ? "#ef4444" : "#ef444499";
+    roundRect(ctx, gripX, balY - gripH / 2, gripW, gripH, 4);
+    ctx.fill();
+    ctx.fillStyle = "#0f1115";
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.arc(gripX + gripW / 2 + i * 5, balY, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = active ? "#ff6b6b" : "#ef4444";
+    ctx.font = active ? "bold 10px monospace" : "10px monospace";
+    ctx.fillText(`BALANCE  ${balanceLevelCy.toFixed(0)} CY`, margin.l + 4, balY - 6);
 
     // balance crossing markers
     ctx.fillStyle = "#ef4444";
@@ -149,12 +170,12 @@ export default function MassHaulCanvas({ massHaul, loops, balanceLevelCy, onBala
       const v = yMin + (i / 4) * (yMax - yMin);
       ctx.fillText(v.toFixed(0), 4, margin.t + plotH - (i / 4) * plotH + 3);
     }
-  }, [massHaul, loops, balanceLevelCy, unitSystem]);
+  }, [massHaul, loops, balanceLevelCy, unitSystem, dragging, nearLine]);
 
   return (
     <canvas
       ref={canvasRef}
-      className={`h-full w-full ${dragging ? "cursor-ns-resize" : "cursor-grab"}`}
+      className={`h-full w-full ${dragging ? "cursor-grabbing" : nearLine ? "cursor-grab" : "cursor-default"}`}
       onMouseDown={(e) => {
         setDragging(true);
         const rect = canvasRef.current!.getBoundingClientRect();
@@ -162,13 +183,32 @@ export default function MassHaulCanvas({ massHaul, loops, balanceLevelCy, onBala
         if (scaleRef.current) onBalanceLevelChange(scaleRef.current.ySy(py));
       }}
       onMouseMove={(e) => {
-        if (!dragging) return;
         const rect = canvasRef.current!.getBoundingClientRect();
         const py = e.clientY - rect.top;
-        if (scaleRef.current) onBalanceLevelChange(scaleRef.current.ySy(py));
+        if (dragging) {
+          if (scaleRef.current) onBalanceLevelChange(scaleRef.current.ySy(py));
+          return;
+        }
+        if (scaleRef.current) {
+          const balY = scaleRef.current.sy(balanceLevelCy);
+          setNearLine(Math.abs(py - balY) <= HOVER_THRESHOLD_PX);
+        }
       }}
       onMouseUp={() => setDragging(false)}
-      onMouseLeave={() => setDragging(false)}
+      onMouseLeave={() => {
+        setDragging(false);
+        setNearLine(false);
+      }}
     />
   );
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }

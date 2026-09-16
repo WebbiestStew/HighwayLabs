@@ -11,9 +11,9 @@
   --border-strong: #34394480;
 
   --text-primary: #d4d8de;
-  --text-secondary: #838a97;
-  --text-tertiary: #565d68;
-  --text-disabled: #3a3f48;
+  --text-secondary: #aeb4bd;
+  --text-tertiary: #969ea9;
+  --text-disabled: #8d95a1;
 
   /* Engineering status accents */
   --accent-geometry: #22d3ee;    /* cyan — geometry / active */
@@ -110,10 +110,50 @@ input[type="number"]::-webkit-outer-spin-button {
   font-variant-numeric: tabular-nums;
 }
 
+/* A pulsing glow, not a dimming opacity fade — text/icon color stays at full
+   (accessible) contrast at every point in the cycle. An opacity-based flash
+   periodically drops the crimson text to ~1.7:1 contrast against its
+   background, well under the 4.5:1 WCAG AA minimum for normal text. */
 @keyframes flash-crimson {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent-critical) 0%, transparent); }
+  50% { box-shadow: 0 0 10px 1px color-mix(in srgb, var(--accent-critical) 70%, transparent); }
 }
 .animate-flash-crimson {
   animation: flash-crimson 1s ease-in-out infinite;
+}
+
+/* Keyboard accessibility: a consistent, visible focus ring on every
+   interactive element, without adding an outline on mouse/touch clicks. */
+:focus-visible {
+  outline: 2px solid var(--accent-geometry);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+/* Panel entrance — a small, deliberate amount of motion so re-rendered
+   content reads as "updated" rather than static and inert. */
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-panel-in {
+  animation: panel-in 220ms ease-out;
+}
+
+/* A brief highlight pulse for a hero metric whose value just changed. */
+@keyframes value-pulse {
+  0% { background-color: transparent; }
+  30% { background-color: color-mix(in srgb, currentColor 12%, transparent); }
+  100% { background-color: transparent; }
+}
+.animate-value-pulse {
+  animation: value-pulse 500ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-panel-in,
+  .animate-value-pulse,
+  .animate-flash-crimson {
+    animation: none;
+  }
 }

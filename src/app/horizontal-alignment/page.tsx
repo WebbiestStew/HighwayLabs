@@ -1,18 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ModuleShell from "@/components/layout/ModuleShell";
 import CalcDrawer, { type CalcStep } from "@/components/layout/CalcDrawer";
 import { NumberField, SelectField, ToggleGroup, SectionLabel } from "@/components/ui/Field";
-import { LedgerRow, StatusPill, Panel } from "@/components/ui/Ledger";
+import { LedgerRow, StatusPill, Panel, ValidationBanner, HeroMetric } from "@/components/ui/Ledger";
+import { horizontalSchema } from "@/lib/schemas/horizontal";
+import { validateInputs } from "@/lib/validation";
+import { usePersistedForm } from "@/lib/persistence";
 import CrossSectionCanvas from "@/components/canvas/CrossSectionCanvas";
 import SuperelevationDiagram from "@/components/charts/SuperelevationDiagram";
-import { useProjectStore, DESIGN_VEHICLE_LABELS, type DesignVehicle } from "@/lib/store";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { useProjectStore, DESIGN_VEHICLE_LABELS, DESIGN_STANDARD_LABELS, type DesignVehicle } from "@/lib/store";
+import { useCorridorStore } from "@/lib/corridorStore";
 import { computeHorizontal, type HorizontalInputs } from "@/lib/engineering/horizontal";
 import { slopesAtOffset } from "@/lib/engineering/superelevationProfile";
 import { fmt, formatStation, ftToM } from "@/lib/units";
 import { generateMemoPdf } from "@/lib/export/memo";
 import { downloadCsv, downloadDxf } from "@/lib/export/download";
+import { captureCanvasImage, captureSvgImage, findCanvas, findSvg } from "@/lib/export/captureImage";
 
 export default function HorizontalAlignmentPage() {
   const {
@@ -21,8 +27,12 @@ export default function HorizontalAlignmentPage() {
     designSpeedMph,
     designVehicle,
     setDesignVehicle,
+    designStandard,
     stationStart,
   } = useProjectStore();
+
+  const crossSectionRef = useRef<HTMLDivElement>(null);
+  const superelevationRef = useRef<HTMLDivElement>(null);
 
   const [lanesPerDirection, setLanes] = useState(2);
   const [laneWidthFt, setLaneWidthFt] = useState<10 | 11 | 12>(12);
@@ -36,6 +46,12 @@ export default function HorizontalAlignmentPage() {
   const [curveRadiusFt, setCurveRadiusFt] = useState(1500);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [offsetFt, setOffsetFt] = useState(0);
+
+  usePersistedForm(
+    "highwaylab.horizontal-alignment",
+    { lanesPerDirection, laneWidthFt, shoulderInsideFt, shoulderOutsideFt, eNCPercent, eMaxPercent, axisOfRotation, lateralAccelC, transitionType, curveRadiusFt },
+    { lanesPerDirection: setLanes, laneWidthFt: setLaneWidthFt, shoulderInsideFt: setShoulderInsideFt, shoulderOutsideFt: setShoulderOutsideFt, eNCPercent: setENCPercent, eMaxPercent: setEMaxPercent, axisOfRotation: setAxisOfRotation, lateralAccelC: setLateralAccelC, transitionType: setTransitionType, curveRadiusFt: setCurveRadiusFt }
+  );
 
   const inputs: HorizontalInputs = {
     designSpeedMph,
@@ -53,6 +69,7 @@ export default function HorizontalAlignmentPage() {
   };
 
   const results = useMemo(() => computeHorizontal(inputs), [JSON.stringify(inputs)]);
+  const validation = useMemo(() => validateInputs(horizontalSchema, inputs), [JSON.stringify(inputs)]);
 
   const totalTransitionFt = results.totalTransitionFt;
   const geometry = {
@@ -71,6 +88,19 @@ export default function HorizontalAlignmentPage() {
 
   const unitLen = unitSystem === "us" ? "ft" : "m";
   const toDisp = (ft: number) => (unitSystem === "us" ? ft : ftToM(ft));
+
+  const publishHorizontal = useCorridorStore((s) => s.publishHorizontal);
+  useEffect(() => {
+    publishHorizontal({
+      curveRadiusFt,
+      tsStationFt: stationStart,
+      scStationFt: stationStart + totalTransitionFt,
+      eDesignPercent: results.eDesignPercent,
+      meetsRMin: results.meetsRMin,
+      designSpeedMph,
+      pavementWidthFt: lanesPerDirection * laneWidthFt,
+    });
+  }, [curveRadiusFt, stationStart, totalTransitionFt, results.eDesignPercent, results.meetsRMin, designSpeedMph, lanesPerDirection, laneWidthFt, publishHorizontal]);
 
   const steps: CalcStep[] = [
     {
@@ -94,11 +124,12 @@ export default function HorizontalAlignmentPage() {
       result: results.meetsRMin ? "PASS" : "FAIL — Non-Conforming",
     },
     {
-      label: "AASHTO Method 5 Design Superelevation (approximate)",
+      label: "AASHTO Method 5 Design Superelevation",
       reference: "Empirical curve-fit approximation of AASHTO Method 5",
       formula: "e_d = e_max·[(1/R − 1/R₀)/(1/R_min − 1/R₀)]^1.5",
       substitution: `R = ${fmt(curveRadiusFt, 0)} ft`,
       result: `${fmt(results.eDesignPercent, 1)}%`,
+      confidence: "approximated",
     },
     {
       label: "Multi-lane Adjustment Factor",
@@ -156,7 +187,14 @@ export default function HorizontalAlignmentPage() {
     },
   ];
 
-  function handleExportMemo() {
+  async function handleExportMemo() {
+    const images = (
+      await Promise.all([
+        Promise.resolve(captureCanvasImage(findCanvas(crossSectionRef.current), "Station-by-Station Cross-Section Visualizer")),
+        captureSvgImage(findSvg(superelevationRef.current), "Plan & Superelevation Elevation Diagram"),
+      ])
+    ).filter((img): img is NonNullable<typeof img> => img !== null);
+
     generateMemoPdf({
       moduleTitle: "Horizontal Alignment & Superelevation Transition",
       corridorName,
@@ -164,6 +202,8 @@ export default function HorizontalAlignmentPage() {
       designVehicleLabel: DESIGN_VEHICLE_LABELS[designVehicle],
       stationRangeLabel: formatStation(stationStart, unitSystem),
       unitSystemLabel: unitSystem.toUpperCase(),
+      governingStandardLabel: DESIGN_STANDARD_LABELS[designStandard],
+      images,
       inputs: [
         { label: "Lanes / direction", value: String(lanesPerDirection) },
         { label: "Lane width", value: `${laneWidthFt} ft` },
@@ -227,7 +267,15 @@ export default function HorizontalAlignmentPage() {
       sidebar={
         <div className="flex flex-col gap-3">
           <SectionLabel>Normal Cross Section</SectionLabel>
-          <NumberField label="Lanes per Direction" value={lanesPerDirection} min={1} max={6} step={1} onChange={setLanes} />
+          <NumberField
+            label="Lanes per Direction"
+            value={lanesPerDirection}
+            min={1}
+            max={6}
+            step={1}
+            onChange={setLanes}
+            error={validation.errors.lanesPerDirection}
+          />
           <SelectField
             label="Lane Width"
             value={String(laneWidthFt) as "10" | "11" | "12"}
@@ -239,10 +287,10 @@ export default function HorizontalAlignmentPage() {
             ]}
           />
           <div className="grid grid-cols-2 gap-2">
-            <NumberField label="Shoulder — Inside" value={shoulderInsideFt} min={2} max={12} onChange={setShoulderInsideFt} unit="ft" />
-            <NumberField label="Shoulder — Outside" value={shoulderOutsideFt} min={2} max={12} onChange={setShoulderOutsideFt} unit="ft" />
+            <NumberField label="Shoulder — Inside" value={shoulderInsideFt} min={2} max={12} onChange={setShoulderInsideFt} unit="ft" error={validation.errors.shoulderInsideFt} />
+            <NumberField label="Shoulder — Outside" value={shoulderOutsideFt} min={2} max={12} onChange={setShoulderOutsideFt} unit="ft" error={validation.errors.shoulderOutsideFt} />
           </div>
-          <NumberField label="Normal Crown e_NC" value={eNCPercent} min={-3} max={0} step={0.1} onChange={setENCPercent} unit="%" />
+          <NumberField label="Normal Crown e_NC" value={eNCPercent} min={-3} max={0} step={0.1} onChange={setENCPercent} unit="%" error={validation.errors.eNCPercent} />
 
           <SectionLabel>Superelevation Policy</SectionLabel>
           <SelectField
@@ -261,7 +309,7 @@ export default function HorizontalAlignmentPage() {
               { value: "outside-edge", label: "Out. Edge" },
             ]}
           />
-          <NumberField label="Lateral Accel. Rate (C)" value={lateralAccelC} min={1} max={3} step={0.1} onChange={setLateralAccelC} unit="ft/s³" />
+          <NumberField label="Lateral Accel. Rate (C)" value={lateralAccelC} min={1} max={3} step={0.1} onChange={setLateralAccelC} unit="ft/s³" error={validation.errors.lateralAccelC} />
 
           <SectionLabel>Curve & Transition</SectionLabel>
           <ToggleGroup
@@ -273,7 +321,16 @@ export default function HorizontalAlignmentPage() {
               { value: "linear", label: "Linear T-to-C" },
             ]}
           />
-          <NumberField label="Selected Curve Radius R" value={curveRadiusFt} min={50} max={50000} step={10} onChange={setCurveRadiusFt} unit="ft" />
+          <NumberField
+            label="Selected Curve Radius R"
+            value={curveRadiusFt}
+            min={50}
+            max={50000}
+            step={10}
+            onChange={setCurveRadiusFt}
+            unit="ft"
+            error={validation.errors.curveRadiusFt}
+          />
 
           <SectionLabel>Design Vehicle</SectionLabel>
           <SelectField
@@ -286,16 +343,30 @@ export default function HorizontalAlignmentPage() {
       }
     >
       <div className="grid h-full grid-cols-[300px_1fr] gap-3">
-        <div className="flex flex-col gap-3 overflow-y-auto">
+        <div tabIndex={0} className="flex flex-col gap-3 overflow-y-auto">
           <div className="flex items-center gap-2">
             <StatusPill status={radiusStatus} label={results.meetsRMin ? "R ≥ R_MIN — CONFORMING" : "R < R_MIN — VIOLATION"} />
           </div>
+          <HeroMetric
+            label="Selected Curve Radius"
+            value={fmt(toDisp(curveRadiusFt), 1)}
+            unit={unitLen}
+            status={radiusStatus}
+            comparison={`vs R_min = ${fmt(toDisp(results.rMinFt), 1)} ${unitLen}`}
+          />
+          <ValidationBanner errors={validation.errors} />
           <Panel title="Superelevation Engineering Ledger">
             <LedgerRow label="f_max(V)" value={fmt(results.fMax, 3)} />
             <LedgerRow label="Δmax (relative gradient)" value={fmt(results.deltaMaxPct, 2)} unit="%" />
             <LedgerRow label="R_min (e_max)" value={fmt(toDisp(results.rMinFt), 1)} unit={unitLen} status={radiusStatus === "fail" ? "fail" : "ok"} />
             <LedgerRow label="Selected R" value={fmt(toDisp(curveRadiusFt), 1)} unit={unitLen} />
-            <LedgerRow label="e_design (Method 5, approx.)" value={fmt(results.eDesignPercent, 1)} unit="%" status="ok" />
+            <LedgerRow
+              label="e_design"
+              value={fmt(results.eDesignPercent, 1)}
+              unit="%"
+              status="ok"
+              approx="Approximated via a curve-fit of AASHTO Method 5's qualitative shape — not a digitization of the published Green Book exhibit tables. See Calculation Proof."
+            />
             <LedgerRow label="w_l multi-lane factor" value={fmt(results.wl, 2)} />
             <LedgerRow label="Tangent Runout L_t" value={fmt(toDisp(results.tangentRunoutFt), 1)} unit={unitLen} />
             <LedgerRow label="Superelevation Runoff L_r" value={fmt(toDisp(results.superelevationRunoffFt), 1)} unit={unitLen} />
@@ -320,18 +391,21 @@ export default function HorizontalAlignmentPage() {
             actions={<span className="text-[10px] text-text-tertiary tabular-nums">STA {formatStation(stationStart + offsetFt, unitSystem)}</span>}
           >
             <div className="flex h-full flex-col gap-2">
-              <div className="min-h-0 flex-1 rounded-sm border border-border-hairline engineering-grid">
-                <CrossSectionCanvas
-                  offsetFt={offsetFt}
-                  geometry={geometry}
-                  lanesPerDirection={lanesPerDirection}
-                  laneWidthFt={laneWidthFt}
-                  shoulderInsideFt={shoulderInsideFt}
-                  shoulderOutsideFt={shoulderOutsideFt}
-                />
+              <div ref={crossSectionRef} className="min-h-0 flex-1 rounded-sm border border-border-hairline engineering-grid">
+                <ErrorBoundary label="Cross-Section Visualizer">
+                  <CrossSectionCanvas
+                    offsetFt={offsetFt}
+                    geometry={geometry}
+                    lanesPerDirection={lanesPerDirection}
+                    laneWidthFt={laneWidthFt}
+                    shoulderInsideFt={shoulderInsideFt}
+                    shoulderOutsideFt={shoulderOutsideFt}
+                  />
+                </ErrorBoundary>
               </div>
               <input
                 type="range"
+                aria-label="Station offset along the superelevation transition"
                 min={0}
                 max={Math.max(totalTransitionFt, 1)}
                 step={totalTransitionFt / 200 || 1}
@@ -339,7 +413,7 @@ export default function HorizontalAlignmentPage() {
                 onChange={(e) => setOffsetFt(Number(e.target.value))}
                 className="w-full accent-cyan"
               />
-              <div className="flex justify-between text-[9px] text-text-tertiary">
+              <div className="flex justify-between text-[10px] text-text-tertiary">
                 <span>TS (0+00)</span>
                 <span>SC — Full Superelevation ({fmt(toDisp(totalTransitionFt), 0)} {unitLen})</span>
               </div>
@@ -347,14 +421,19 @@ export default function HorizontalAlignmentPage() {
           </Panel>
 
           <Panel title="Plan & Superelevation Elevation Diagram" className="min-h-0 flex-1">
-            <SuperelevationDiagram
-              geometry={geometry}
-              lanesPerDirection={lanesPerDirection}
-              laneWidthFt={laneWidthFt}
-              shoulderOutsideFt={shoulderOutsideFt}
-              tsStationFt={stationStart}
-              unitSystem={unitSystem}
-            />
+            <div ref={superelevationRef} className="h-full w-full">
+            <ErrorBoundary label="Superelevation Diagram">
+              <SuperelevationDiagram
+                geometry={geometry}
+                lanesPerDirection={lanesPerDirection}
+                laneWidthFt={laneWidthFt}
+                shoulderOutsideFt={shoulderOutsideFt}
+                tsStationFt={stationStart}
+                unitSystem={unitSystem}
+                axisOfRotation={axisOfRotation}
+              />
+            </ErrorBoundary>
+            </div>
           </Panel>
         </div>
       </div>

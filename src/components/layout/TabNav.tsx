@@ -4,11 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const TABS = [
+  { href: "/overview", label: "00 · PROJECT OVERVIEW", accent: "cyan" },
   { href: "/horizontal-alignment", label: "01 · HORIZONTAL ALIGNMENT", accent: "cyan" },
   { href: "/vertical-alignment", label: "02 · VERTICAL ALIGNMENT", accent: "cyan" },
   { href: "/interchange-ops", label: "03 · INTERCHANGE / HCM OPS", accent: "amber" },
   { href: "/earthwork", label: "04 · EARTHWORK / MASS-HAUL", accent: "emerald" },
   { href: "/pavement", label: "05 · PAVEMENT SN DESIGN", accent: "emerald" },
+  { href: "/network-builder", label: "06 · NETWORK BUILDER", accent: "cyan" },
 ] as const;
 
 export default function TabNav() {

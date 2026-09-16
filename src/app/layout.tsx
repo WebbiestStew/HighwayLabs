@@ -3,6 +3,9 @@ import { JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import TopStatusBar from "@/components/layout/TopStatusBar";
 import TabNav from "@/components/layout/TabNav";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import Toaster from "@/components/layout/Toaster";
+import CommandPalette from "@/components/layout/CommandPalette";
 
 const jetbrainsMono = JetBrains_Mono({
   variable: "--font-jetbrains-mono",
@@ -25,8 +28,12 @@ export default function RootLayout({
         <div className="flex h-screen flex-col overflow-hidden">
           <TopStatusBar />
           <TabNav />
-          <main className="flex-1 overflow-hidden">{children}</main>
+          <main className="flex-1 overflow-hidden">
+            <ErrorBoundary label="Module">{children}</ErrorBoundary>
+          </main>
         </div>
+        <Toaster />
+        <CommandPalette />
       </body>
     </html>
   );

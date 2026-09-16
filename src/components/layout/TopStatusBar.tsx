@@ -1,7 +1,12 @@
 "use client";
 
-import { useProjectStore, DESIGN_VEHICLE_LABELS, type DesignVehicle } from "@/lib/store";
+import Link from "next/link";
+import { Search } from "lucide-react";
+import { useProjectStore } from "@/lib/store";
 import { formatStation, mphToKmh, kmhToMph } from "@/lib/units";
+import ProjectManager from "@/components/layout/ProjectManager";
+import SettingsMenu from "@/components/layout/SettingsMenu";
+import { openCommandPalette } from "@/components/layout/CommandPalette";
 
 export default function TopStatusBar() {
   const {
@@ -11,8 +16,6 @@ export default function TopStatusBar() {
     setUnitSystem,
     designSpeedMph,
     setDesignSpeedMph,
-    designVehicle,
-    setDesignVehicle,
     stationStart,
     stationEnd,
   } = useProjectStore();
@@ -22,30 +25,38 @@ export default function TopStatusBar() {
   const speedUnitLabel = unitSystem === "us" ? "mph" : "km/h";
 
   return (
-    <header className="flex h-10 shrink-0 items-center gap-4 border-b border-border-hairline bg-surface-1 px-3 text-[11px]">
-      <div className="flex items-center gap-2">
+    <header className="flex h-10 shrink-0 items-center gap-4 overflow-x-auto border-b border-border-hairline bg-surface-1 px-3 text-[11px]">
+      <Link href="/start" className="flex shrink-0 items-center gap-2" aria-label="Back to start screen" title="Back to start screen">
         <span className="flex h-5 w-5 items-center justify-center rounded-sm bg-cyan/10 text-cyan font-bold text-[10px]">
           HL
         </span>
-        <span className="font-semibold tracking-wide text-text-primary">HIGHWAYLAB</span>
+        <span className="font-semibold tracking-wide text-text-primary hover:text-cyan">HIGHWAYLAB</span>
+      </Link>
+
+      <div className="flex shrink-0 items-center gap-2">
+        <ProjectManager />
+        <SettingsMenu />
       </div>
 
-      <div className="h-4 w-px bg-border-hairline" />
+      <div className="h-4 w-px shrink-0 bg-border-hairline" />
 
-      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+      <div className="flex min-w-[140px] flex-1 items-center gap-1.5">
         <span className="shrink-0 text-text-tertiary">CORRIDOR</span>
         <input
+          aria-label="Corridor name"
           value={corridorName}
           onChange={(e) => setCorridorName(e.target.value)}
           className="w-full min-w-0 truncate bg-transparent text-text-primary outline-none focus:text-cyan"
         />
       </div>
 
-      <div className="h-4 w-px bg-border-hairline" />
+      <div className="h-4 w-px shrink-0 bg-border-hairline" />
 
-      <StatusField label="V DESIGN" value="" accent="cyan">
+      <div className="flex shrink-0 items-center gap-1.5">
+        <span className="text-text-tertiary">V DESIGN</span>
         <input
           type="number"
+          aria-label={`Design speed (${speedUnitLabel})`}
           value={speedDisplayValue}
           min={unitSystem === "us" ? 15 : 25}
           max={unitSystem === "us" ? 85 : 135}
@@ -56,25 +67,9 @@ export default function TopStatusBar() {
           className="w-12 bg-transparent text-right text-cyan outline-none"
         />
         <span className="text-[10px] text-text-tertiary">{speedUnitLabel}</span>
-      </StatusField>
+      </div>
 
-      <div className="h-4 w-px bg-border-hairline" />
-
-      <StatusField label="VEHICLE" value="">
-        <select
-          value={designVehicle}
-          onChange={(e) => setDesignVehicle(e.target.value as DesignVehicle)}
-          className="bg-transparent text-text-primary outline-none"
-        >
-          {Object.entries(DESIGN_VEHICLE_LABELS).map(([k, v]) => (
-            <option key={k} value={k} className="bg-surface-1">
-              {k}
-            </option>
-          ))}
-        </select>
-      </StatusField>
-
-      <div className="h-4 w-px bg-border-hairline" />
+      <div className="h-4 w-px shrink-0 bg-border-hairline" />
 
       <div className="flex shrink-0 items-center gap-1.5 tabular-nums">
         <span className="text-text-tertiary">STA</span>
@@ -83,7 +78,7 @@ export default function TopStatusBar() {
         </span>
       </div>
 
-      <div className="h-4 w-px bg-border-hairline" />
+      <div className="h-4 w-px shrink-0 bg-border-hairline" />
 
       <div className="flex shrink-0 items-center rounded-sm border border-border-hairline">
         <button
@@ -99,25 +94,17 @@ export default function TopStatusBar() {
           SI
         </button>
       </div>
-    </header>
-  );
-}
 
-function StatusField({
-  label,
-  value,
-  accent,
-  children,
-}: {
-  label: string;
-  value: string;
-  accent?: "cyan" | "amber" | "emerald";
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="flex shrink-0 items-center gap-1.5">
-      <span className="text-text-tertiary">{label}</span>
-      {children ?? <span className="tabular-nums text-text-primary">{value}</span>}
-    </div>
+      <div className="h-4 w-px shrink-0 bg-border-hairline" />
+
+      <button
+        onClick={openCommandPalette}
+        className="flex shrink-0 items-center gap-1.5 rounded-sm border border-border-hairline px-2 py-1 text-text-tertiary hover:border-cyan/40 hover:text-cyan"
+        title="Search / jump to a module"
+      >
+        <Search size={11} />
+        <kbd className="text-[9px]">⌘K</kbd>
+      </button>
+    </header>
   );
 }

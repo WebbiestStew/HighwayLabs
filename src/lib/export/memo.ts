@@ -18,6 +18,13 @@ export interface MemoVerdict {
   detail: string;
 }
 
+export interface MemoImage {
+  label: string;
+  dataUrl: string; // PNG data URL
+  widthPx: number;
+  heightPx: number;
+}
+
 export interface MemoDoc {
   moduleTitle: string;
   corridorName: string;
@@ -25,9 +32,11 @@ export interface MemoDoc {
   designVehicleLabel: string;
   stationRangeLabel: string;
   unitSystemLabel: string;
+  governingStandardLabel?: string;
   inputs: MemoInput[];
   steps: MemoStep[];
   verdicts: MemoVerdict[];
+  images?: MemoImage[];
   preparedBy?: string;
 }
 
@@ -79,6 +88,7 @@ export function generateMemoPdf(doc: MemoDoc) {
     ["Design Vehicle", doc.designVehicleLabel],
     ["Station Range", doc.stationRangeLabel],
     ["Unit System", doc.unitSystemLabel],
+    ["Governing Standard", doc.governingStandardLabel ?? "AASHTO Green Book / HCM"],
   ];
   for (const [k, v] of meta) {
     pdf.text(`${k}:`, MARGIN, y);
@@ -177,6 +187,34 @@ export function generateMemoPdf(doc: MemoDoc) {
     pdf.setFont("courier", "normal");
     y += 5.5;
   });
+
+  // Embedded diagrams (captured from the live canvas/chart at export time)
+  if (doc.images && doc.images.length > 0) {
+    y += 2;
+    newPageIfNeeded(10);
+    pdf.line(MARGIN, y, PAGE_W - MARGIN, y);
+    y += 6;
+    pdf.setFont("courier", "bold");
+    pdf.setFontSize(9);
+    pdf.text("DIAGRAMS", MARGIN, y);
+    y += 6;
+    for (const img of doc.images) {
+      const aspect = img.heightPx / img.widthPx;
+      const imgW = CONTENT_W;
+      const imgH = imgW * aspect;
+      newPageIfNeeded(imgH + 10);
+      pdf.setFont("courier", "bold");
+      pdf.setFontSize(7.5);
+      pdf.text(img.label, MARGIN, y);
+      y += 3;
+      try {
+        pdf.addImage(img.dataUrl, "PNG", MARGIN, y, imgW, imgH, undefined, "FAST");
+      } catch {
+        // skip a diagram that fails to rasterize rather than breaking the export
+      }
+      y += imgH + 6;
+    }
+  }
 
   y += 2;
   newPageIfNeeded(14);

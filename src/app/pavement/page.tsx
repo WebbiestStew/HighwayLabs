@@ -1,19 +1,26 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ModuleShell from "@/components/layout/ModuleShell";
 import CalcDrawer, { type CalcStep } from "@/components/layout/CalcDrawer";
 import { NumberField, SectionLabel } from "@/components/ui/Field";
-import { LedgerRow, StatusPill, Panel } from "@/components/ui/Ledger";
+import { LedgerRow, StatusPill, Panel, ValidationBanner, HeroMetric } from "@/components/ui/Ledger";
 import PavementCrossSectionCanvas from "@/components/canvas/PavementCrossSectionCanvas";
-import { useProjectStore, DESIGN_VEHICLE_LABELS } from "@/lib/store";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { useProjectStore, DESIGN_VEHICLE_LABELS, DESIGN_STANDARD_LABELS } from "@/lib/store";
+import { useCorridorStore } from "@/lib/corridorStore";
 import { computePavement, type PavementInputs } from "@/lib/engineering/pavement";
 import { fmt, formatStation } from "@/lib/units";
 import { generateMemoPdf } from "@/lib/export/memo";
 import { downloadCsv } from "@/lib/export/download";
+import { pavementSchema } from "@/lib/schemas/pavement";
+import { validateInputs } from "@/lib/validation";
+import { usePersistedForm } from "@/lib/persistence";
+import { captureCanvasImage, findCanvas } from "@/lib/export/captureImage";
 
 export default function PavementPage() {
-  const { corridorName, unitSystem, designSpeedMph, designVehicle, stationStart } = useProjectStore();
+  const { corridorName, unitSystem, designSpeedMph, designVehicle, designStandard, stationStart } = useProjectStore();
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
 
   const [w18, setW18] = useState(4_500_000);
   const [reliabilityPercent, setReliabilityPercent] = useState(95);
@@ -33,6 +40,18 @@ export default function PavementPage() {
 
   const inputs: PavementInputs = { w18, reliabilityPercent, s0, p0, pt, mrPsi, a1, d1, a2, d2, m2, a3, d3, m3 };
   const results = useMemo(() => computePavement(inputs), [JSON.stringify(inputs)]);
+  const validation = useMemo(() => validateInputs(pavementSchema, inputs), [JSON.stringify(inputs)]);
+
+  usePersistedForm(
+    "highwaylab.pavement",
+    { ...inputs },
+    { w18: setW18, reliabilityPercent: setReliabilityPercent, s0: setS0, p0: setP0, pt: setPt, mrPsi: setMrPsi, a1: setA1, d1: setD1, a2: setA2, d2: setD2, m2: setM2, a3: setA3, d3: setD3, m3: setM3 }
+  );
+
+  const publishPavement = useCorridorStore((s) => s.publishPavement);
+  useEffect(() => {
+    publishPavement({ snRequired: results.snRequired, snProvided: results.snProvided, pass: results.pass });
+  }, [results.snRequired, results.snProvided, results.pass, publishPavement]);
 
   const passStatus = results.pass ? "ok" : "fail";
   const surfaceStatus = results.meetsMinSurface ? "ok" : "warn";
@@ -87,7 +106,9 @@ export default function PavementPage() {
     },
   ];
 
-  function handleExportMemo() {
+  async function handleExportMemo() {
+    const img = captureCanvasImage(findCanvas(canvasContainerRef.current), "Layered Pavement Cross-Section");
+
     generateMemoPdf({
       moduleTitle: "Pavement Structural Number — 1993 AASHTO Empirical Design",
       corridorName,
@@ -95,6 +116,8 @@ export default function PavementPage() {
       designVehicleLabel: DESIGN_VEHICLE_LABELS[designVehicle],
       stationRangeLabel: formatStation(stationStart, unitSystem),
       unitSystemLabel: unitSystem.toUpperCase(),
+      governingStandardLabel: DESIGN_STANDARD_LABELS[designStandard],
+      images: img ? [img] : [],
       inputs: [
         { label: "Design ESALs (W18)", value: fmt(w18, 0) },
         { label: "Reliability", value: `${reliabilityPercent}%` },
@@ -141,40 +164,47 @@ export default function PavementPage() {
       sidebar={
         <div className="flex flex-col gap-3">
           <SectionLabel>Traffic & Reliability</SectionLabel>
-          <NumberField label="Design ESALs (W18)" value={w18} step={100000} onChange={setW18} />
-          <NumberField label="Reliability R" value={reliabilityPercent} min={80} max={99.9} step={0.1} onChange={setReliabilityPercent} unit="%" />
-          <NumberField label="Overall Std. Deviation S0" value={s0} min={0.3} max={0.5} step={0.01} onChange={setS0} />
+          <NumberField label="Design ESALs (W18)" value={w18} step={100000} onChange={setW18} error={validation.errors.w18} />
+          <NumberField label="Reliability R" value={reliabilityPercent} min={80} max={99.9} step={0.1} onChange={setReliabilityPercent} unit="%" error={validation.errors.reliabilityPercent} />
+          <NumberField label="Overall Std. Deviation S0" value={s0} min={0.3} max={0.5} step={0.01} onChange={setS0} error={validation.errors.s0} />
           <div className="grid grid-cols-2 gap-2">
-            <NumberField label="Initial PSI p0" value={p0} step={0.1} onChange={setP0} />
-            <NumberField label="Terminal PSI pt" value={pt} step={0.1} onChange={setPt} />
+            <NumberField label="Initial PSI p0" value={p0} step={0.1} onChange={setP0} error={validation.errors.p0} />
+            <NumberField label="Terminal PSI pt" value={pt} step={0.1} onChange={setPt} error={validation.errors.pt} />
           </div>
-          <NumberField label="Roadbed Resilient Modulus" value={mrPsi} step={100} onChange={setMrPsi} unit="psi" />
+          <NumberField label="Roadbed Resilient Modulus" value={mrPsi} step={100} onChange={setMrPsi} unit="psi" error={validation.errors.mrPsi} />
 
           <SectionLabel>Layer 1 — AC Surface</SectionLabel>
           <div className="grid grid-cols-2 gap-2">
-            <NumberField label="Coefficient a1" value={a1} step={0.01} onChange={setA1} />
-            <NumberField label="Thickness D1" value={d1} step={0.25} onChange={setD1} unit="in" />
+            <NumberField label="Coefficient a1" value={a1} step={0.01} onChange={setA1} error={validation.errors.a1} />
+            <NumberField label="Thickness D1" value={d1} step={0.25} onChange={setD1} unit="in" error={validation.errors.d1} />
           </div>
 
           <SectionLabel>Layer 2 — Crushed Stone Base</SectionLabel>
           <div className="grid grid-cols-3 gap-2">
-            <NumberField label="a2" value={a2} step={0.01} onChange={setA2} />
-            <NumberField label="D2" value={d2} step={0.5} onChange={setD2} unit="in" />
-            <NumberField label="m2" value={m2} step={0.05} onChange={setM2} />
+            <NumberField label="a2" value={a2} step={0.01} onChange={setA2} error={validation.errors.a2} />
+            <NumberField label="D2" value={d2} step={0.5} onChange={setD2} unit="in" error={validation.errors.d2} />
+            <NumberField label="m2" value={m2} step={0.05} onChange={setM2} error={validation.errors.m2} />
           </div>
 
           <SectionLabel>Layer 3 — Granular Subbase</SectionLabel>
           <div className="grid grid-cols-3 gap-2">
-            <NumberField label="a3" value={a3} step={0.01} onChange={setA3} />
-            <NumberField label="D3" value={d3} step={0.5} onChange={setD3} unit="in" />
-            <NumberField label="m3" value={m3} step={0.05} onChange={setM3} />
+            <NumberField label="a3" value={a3} step={0.01} onChange={setA3} error={validation.errors.a3} />
+            <NumberField label="D3" value={d3} step={0.5} onChange={setD3} unit="in" error={validation.errors.d3} />
+            <NumberField label="m3" value={m3} step={0.05} onChange={setM3} error={validation.errors.m3} />
           </div>
         </div>
       }
     >
       <div className="grid h-full grid-cols-[320px_1fr] gap-3">
-        <div className="flex flex-col gap-3 overflow-y-auto">
+        <div tabIndex={0} className="flex flex-col gap-3 overflow-y-auto">
           <StatusPill status={passStatus} label={results.pass ? "SN PROVIDED ≥ SN REQUIRED" : "STRUCTURAL DEFICIT"} />
+          <HeroMetric
+            label="Provided Structural Number"
+            value={fmt(results.snProvided, 2)}
+            status={passStatus}
+            comparison={`vs SN required = ${fmt(results.snRequired, 2)} (margin ${results.margin >= 0 ? "+" : ""}${fmt(results.margin, 2)})`}
+          />
+          <ValidationBanner errors={validation.errors} />
           <Panel title="Structural Design Ledger">
             <LedgerRow label="Z_R" value={fmt(results.zR, 3)} />
             <LedgerRow label="ΔPSI" value={fmt(results.deltaPSI, 2)} />
@@ -195,8 +225,10 @@ export default function PavementPage() {
         </div>
 
         <Panel title="Layered Pavement Cross-Section">
-          <div className="h-full w-full rounded-sm border border-border-hairline">
-            <PavementCrossSectionCanvas d1={d1} d2={d2} d3={d3} />
+          <div ref={canvasContainerRef} className="h-full w-full rounded-sm border border-border-hairline">
+            <ErrorBoundary label="Pavement Cross-Section">
+              <PavementCrossSectionCanvas d1={d1} d2={d2} d3={d3} />
+            </ErrorBoundary>
           </div>
         </Panel>
       </div>

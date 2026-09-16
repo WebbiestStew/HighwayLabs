@@ -44,11 +44,15 @@ export interface MergeInputs {
   phf: number;
   heavyVehiclePercent: number;
   passengerCarEquivalent: number;
+  /** Optional — when both are given, a large ramp/mainline speed differential adds a turbulence penalty to density. */
+  rampFfsMph?: number;
+  mainlineFfsMph?: number;
 }
 export interface MergeResults {
   vR: number;
   v12: number;
   densityPcMiLn: number;
+  speedDifferentialMph: number;
   los: LOSGrade;
 }
 export function computeMergeDiverge(inputs: MergeInputs, type: "merge" | "diverge"): MergeResults {
@@ -60,8 +64,16 @@ export function computeMergeDiverge(inputs: MergeInputs, type: "merge" | "diverg
     type === "merge"
       ? 5.475 + 0.00734 * vR + 0.0078 * v12 - 0.00627 * La
       : 4.252 + 0.0086 * vR + 0.009 * v12 - 0.009 * La;
-  const densityClamped = Math.max(0, density);
-  return { vR, v12, densityPcMiLn: densityClamped, los: densityToLOS(densityClamped) };
+
+  // Speed-differential turbulence adjustment: a ramp running much slower than the
+  // mainline forces harder braking/weaving at the gore, which the base regression
+  // (fit for a "typical" differential) doesn't otherwise capture.
+  const speedDifferentialMph =
+    inputs.rampFfsMph != null && inputs.mainlineFfsMph != null ? Math.max(0, inputs.mainlineFfsMph - inputs.rampFfsMph) : 0;
+  const turbulencePenalty = Math.max(0, speedDifferentialMph - 10) * 0.06;
+
+  const densityClamped = Math.max(0, density + turbulencePenalty);
+  return { vR, v12, densityPcMiLn: densityClamped, speedDifferentialMph, los: densityToLOS(densityClamped) };
 }
 
 export interface WeavingInputs {

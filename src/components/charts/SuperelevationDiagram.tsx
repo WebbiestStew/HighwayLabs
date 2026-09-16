@@ -14,7 +14,9 @@ import {
 import { slopesAtOffset, TRANSITION_STAGES, type TransitionGeometry } from "@/lib/engineering/superelevationProfile";
 import { formatStation, type UnitSystem } from "@/lib/units";
 
-const CL_ELEV_FT = 100.0;
+const REF_ELEV_FT = 100.0;
+
+export type AxisOfRotation = "centerline" | "inside-edge" | "outside-edge";
 
 export default function SuperelevationDiagram({
   geometry,
@@ -23,6 +25,7 @@ export default function SuperelevationDiagram({
   shoulderOutsideFt,
   tsStationFt,
   unitSystem,
+  axisOfRotation = "centerline",
 }: {
   geometry: TransitionGeometry;
   lanesPerDirection: number;
@@ -30,23 +33,37 @@ export default function SuperelevationDiagram({
   shoulderOutsideFt: number;
   tsStationFt: number;
   unitSystem: UnitSystem;
+  axisOfRotation?: AxisOfRotation;
 }) {
   const totalLength = geometry.tangentRunoutFt + geometry.superelevationRunoffFt;
   const samples = 40;
   const pavementWidth = lanesPerDirection * laneWidthFt;
   const outsideShoulderDist = pavementWidth + shoulderOutsideFt;
 
+  // The axis of rotation is the point held on the profile grade line (flat);
+  // every other point's elevation is computed outward from that pivot using
+  // each side's independent cross slope, rather than always pivoting on CL.
   const data = Array.from({ length: samples + 1 }, (_, i) => {
     const x = (i / samples) * totalLength;
     const { lowSidePercent, highSidePercent } = slopesAtOffset(x, geometry);
-    return {
-      x,
-      station: tsStationFt + x,
-      CL: CL_ELEV_FT,
-      LEP: CL_ELEV_FT - (pavementWidth * lowSidePercent) / 100,
-      REP: CL_ELEV_FT + (pavementWidth * highSidePercent) / 100,
-      OuterShoulder: CL_ELEV_FT + (outsideShoulderDist * highSidePercent) / 100,
-    };
+
+    let CL: number, LEP: number, REP: number;
+    if (axisOfRotation === "inside-edge") {
+      LEP = REF_ELEV_FT;
+      CL = LEP + (pavementWidth * lowSidePercent) / 100;
+      REP = CL + (pavementWidth * highSidePercent) / 100;
+    } else if (axisOfRotation === "outside-edge") {
+      REP = REF_ELEV_FT;
+      CL = REP - (pavementWidth * highSidePercent) / 100;
+      LEP = CL - (pavementWidth * lowSidePercent) / 100;
+    } else {
+      CL = REF_ELEV_FT;
+      LEP = CL - (pavementWidth * lowSidePercent) / 100;
+      REP = CL + (pavementWidth * highSidePercent) / 100;
+    }
+    const OuterShoulder = REP + (shoulderOutsideFt * highSidePercent) / 100;
+
+    return { x, station: tsStationFt + x, CL, LEP, REP, OuterShoulder };
   });
 
   const stages = TRANSITION_STAGES(geometry).filter((s) => s.x >= 0);
