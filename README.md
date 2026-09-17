@@ -21,7 +21,15 @@ palette to jump anywhere; `⌘S` quick-saves the active project.
 1. **Horizontal Alignment** — superelevation transition (AASHTO Method 5
    approximation), clothoid spiral design, tangent runout / runoff, pavement
    widening, station-by-station cross-section visualizer, axis-of-rotation
-   selector that actually re-pivots the elevation diagram.
+   selector that actually re-pivots the elevation diagram. Also includes a
+   **3D corridor viewer** (React Three Fiber, orbit-controllable, vertical
+   exaggeration slider) that extrudes the full tangent–spiral–arc–spiral–
+   tangent geometry into a low-poly pavement ribbon showing superelevation
+   roll into the curve; a **sight-distance envelope overlay** (plan-view
+   SSD sight chord, required horizontal sightline offset M, and a live
+   clear/violation check against a user-entered obstruction clearance); and
+   real **3D-polyline DXF** and **LandXML `<Alignment>`/`<CoordGeom>`**
+   export, sourced from the same clothoid geometry engine as the viewer.
 2. **Vertical Alignment** — parabolic crest/sag curves, K-factor design,
    SSD, overhead structure clearance checking, one-click sync of PVC station
    to Module 1's horizontal SC.
@@ -55,7 +63,12 @@ captures)** and **CSV / DXF** alignment data.
 ## Cross-cutting features
 
 - **Start screen** (`/start`) — new project, open saved project, import a
-  project file, or load a fully-configured demo corridor.
+  project file, or load a fully-configured demo corridor. Also offers
+  **1-click TxDOT/AASHTO templates** — "TxDOT Rural Interstate" (75 mph,
+  e_max 8%), "Urban Arterial Divided" (45 mph, e_max 4%), and "Mountain
+  Pass Highway" (50 mph, e_max 6%) — each a full, R ≥ R_min compliant
+  Horizontal Alignment configuration, verified against the app's own
+  engine in `presets.test.ts`, not just plausible-looking numbers.
 - **Project portability** — named local save/load (Project Manager, top
   bar) plus **export/import as a `.highwaylab.json` file**, so a project can
   move between machines or be handed to a colleague with no backend.
@@ -123,5 +136,12 @@ otherwise Playwright starts one itself.
   CAD-accurate geometry.
 - Earthwork cut/fill areas are still hand-entered — there's no
   terrain/ground-survey model to derive them from the designed template.
+- The 3D corridor viewer, DXF/LandXML export, and sight-distance overlay
+  always model superelevation about the pavement centerline, regardless of
+  Module 1's Axis of Rotation setting (inside-/outside-edge rotation isn't
+  reflected in the 3D geometry, only in the 2D superelevation ledger).
+- LandXML export is a good-faith interoperability export (well-formed
+  `<Alignment>`/`<CoordGeom>` with Line/Spiral/Curve elements) — it hasn't
+  been round-tripped against every CAD vendor's importer.
 - No multi-user accounts or server-side storage; everything is local to one
   browser unless exported as a project file.

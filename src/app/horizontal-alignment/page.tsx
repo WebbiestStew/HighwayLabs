@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { Box, FileDown } from "lucide-react";
 import ModuleShell from "@/components/layout/ModuleShell";
 import CalcDrawer, { type CalcStep } from "@/components/layout/CalcDrawer";
 import { NumberField, SelectField, ToggleGroup, SectionLabel } from "@/components/ui/Field";
@@ -10,15 +12,23 @@ import { validateInputs } from "@/lib/validation";
 import { usePersistedForm } from "@/lib/persistence";
 import CrossSectionCanvas from "@/components/canvas/CrossSectionCanvas";
 import SuperelevationDiagram from "@/components/charts/SuperelevationDiagram";
+import SightDistancePlanView from "@/components/canvas/SightDistancePlanView";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useProjectStore, DESIGN_VEHICLE_LABELS, DESIGN_STANDARD_LABELS, type DesignVehicle } from "@/lib/store";
 import { useCorridorStore } from "@/lib/corridorStore";
 import { computeHorizontal, type HorizontalInputs } from "@/lib/engineering/horizontal";
 import { slopesAtOffset } from "@/lib/engineering/superelevationProfile";
+import { computeAlignmentGeometry, type AlignmentParams } from "@/lib/engineering/alignmentGeometry";
 import { fmt, formatStation, ftToM } from "@/lib/units";
 import { generateMemoPdf } from "@/lib/export/memo";
 import { downloadCsv, downloadDxf } from "@/lib/export/download";
+import { downloadAlignmentDxf, downloadLandXml } from "@/lib/export/alignmentExport";
 import { captureCanvasImage, captureSvgImage, findCanvas, findSvg } from "@/lib/export/captureImage";
+
+const AlignmentViewer3D = dynamic(() => import("@/components/canvas/AlignmentViewer3D"), {
+  ssr: false,
+  loading: () => <div className="flex h-full items-center justify-center text-[10px] text-text-tertiary">LOADING 3D VIEWER…</div>,
+});
 
 export default function HorizontalAlignmentPage() {
   const {
@@ -47,10 +57,23 @@ export default function HorizontalAlignmentPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [offsetFt, setOffsetFt] = useState(0);
 
+  // Geometry-only inputs for the 3D viewer / DXF / LandXML / sight-distance
+  // overlay: a radius alone doesn't determine a full curve (also needs a
+  // central angle) or 3D shape (also needs lead tangents, elevation, grade).
+  // Scoped to geometry/visualization/export — none of these feed the
+  // superelevation engineering ledger above.
+  const [deflectionAngleDeg, setDeflectionAngleDeg] = useState(40);
+  const [turnDirection, setTurnDirection] = useState<AlignmentParams["turnDirection"]>("right");
+  const [leadTangentFt, setLeadTangentFt] = useState(300);
+  const [startElevationFt, setStartElevationFt] = useState(500);
+  const [gradePercent, setGradePercent] = useState(0);
+  const [verticalExaggeration, setVerticalExaggeration] = useState(8);
+  const [actualClearanceFt, setActualClearanceFt] = useState(20);
+
   usePersistedForm(
     "highwaylab.horizontal-alignment",
-    { lanesPerDirection, laneWidthFt, shoulderInsideFt, shoulderOutsideFt, eNCPercent, eMaxPercent, axisOfRotation, lateralAccelC, transitionType, curveRadiusFt },
-    { lanesPerDirection: setLanes, laneWidthFt: setLaneWidthFt, shoulderInsideFt: setShoulderInsideFt, shoulderOutsideFt: setShoulderOutsideFt, eNCPercent: setENCPercent, eMaxPercent: setEMaxPercent, axisOfRotation: setAxisOfRotation, lateralAccelC: setLateralAccelC, transitionType: setTransitionType, curveRadiusFt: setCurveRadiusFt }
+    { lanesPerDirection, laneWidthFt, shoulderInsideFt, shoulderOutsideFt, eNCPercent, eMaxPercent, axisOfRotation, lateralAccelC, transitionType, curveRadiusFt, deflectionAngleDeg, turnDirection, leadTangentFt, startElevationFt, gradePercent, actualClearanceFt },
+    { lanesPerDirection: setLanes, laneWidthFt: setLaneWidthFt, shoulderInsideFt: setShoulderInsideFt, shoulderOutsideFt: setShoulderOutsideFt, eNCPercent: setENCPercent, eMaxPercent: setEMaxPercent, axisOfRotation: setAxisOfRotation, lateralAccelC: setLateralAccelC, transitionType: setTransitionType, curveRadiusFt: setCurveRadiusFt, deflectionAngleDeg: setDeflectionAngleDeg, turnDirection: setTurnDirection, leadTangentFt: setLeadTangentFt, startElevationFt: setStartElevationFt, gradePercent: setGradePercent, actualClearanceFt: setActualClearanceFt }
   );
 
   const inputs: HorizontalInputs = {
@@ -79,7 +102,24 @@ export default function HorizontalAlignmentPage() {
     eDesignPercent: results.eDesignPercent,
   };
 
+  const pavementWidthFt = lanesPerDirection * laneWidthFt;
+  const alignmentParams: AlignmentParams = {
+    curveRadiusFt,
+    geometricSpiralLengthFt: Math.max(results.spiralLengthMinFt, results.superelevationRunoffFt),
+    deflectionAngleDeg,
+    turnDirection,
+    crossSlope: geometry,
+    leadTangentFt,
+    pavementWidthFt,
+    shoulderWidthFt: shoulderOutsideFt,
+    startElevationFt,
+    gradePercent,
+    startStationFt: stationStart,
+  };
+  const alignmentResult = useMemo(() => computeAlignmentGeometry(alignmentParams), [JSON.stringify(alignmentParams)]);
+
   const radiusStatus = results.meetsRMin ? "ok" : "fail";
+  const sightDistanceViolation = actualClearanceFt < results.middleOrdinateFt;
   const wideningStatus = results.widening.applicable
     ? results.widening.wcFt - lanesPerDirection * laneWidthFt > 0.05
       ? "warn"
@@ -339,6 +379,35 @@ export default function HorizontalAlignmentPage() {
             onChange={(v) => setDesignVehicle(v as DesignVehicle)}
             options={Object.entries(DESIGN_VEHICLE_LABELS).map(([k, v]) => ({ value: k as DesignVehicle, label: v }))}
           />
+
+          <SectionLabel>3D / Export Geometry</SectionLabel>
+          <NumberField label="Deflection Angle Δ" value={deflectionAngleDeg} min={0} max={180} step={1} onChange={setDeflectionAngleDeg} unit="deg" />
+          <ToggleGroup
+            label="Turn Direction"
+            value={turnDirection}
+            onChange={setTurnDirection}
+            options={[
+              { value: "left", label: "Left" },
+              { value: "right", label: "Right" },
+            ]}
+          />
+          <NumberField label="Lead Tangent" value={leadTangentFt} min={0} max={5000} step={50} onChange={setLeadTangentFt} unit="ft" />
+          <div className="grid grid-cols-2 gap-2">
+            <NumberField label="Start Elevation" value={startElevationFt} step={10} onChange={setStartElevationFt} unit="ft" />
+            <NumberField label="Grade" value={gradePercent} min={-10} max={10} step={0.1} onChange={setGradePercent} unit="%" />
+          </div>
+          <NumberField label="3D Vertical Exaggeration" value={verticalExaggeration} min={1} max={30} step={1} onChange={setVerticalExaggeration} unit="×" />
+
+          <SectionLabel>Sight Distance Overlay</SectionLabel>
+          <NumberField
+            label="Actual Obstruction Clearance"
+            value={actualClearanceFt}
+            min={0}
+            max={500}
+            step={1}
+            onChange={setActualClearanceFt}
+            unit="ft"
+          />
         </div>
       }
     >
@@ -384,7 +453,7 @@ export default function HorizontalAlignmentPage() {
           </Panel>
         </div>
 
-        <div className="flex flex-col gap-3">
+        <div tabIndex={0} className="flex flex-col gap-3 overflow-y-auto">
           <Panel
             title="Station-by-Station Cross-Section Visualizer"
             className="h-[380px]"
@@ -420,7 +489,7 @@ export default function HorizontalAlignmentPage() {
             </div>
           </Panel>
 
-          <Panel title="Plan & Superelevation Elevation Diagram" className="min-h-0 flex-1">
+          <Panel title="Plan & Superelevation Elevation Diagram" className="h-[320px]">
             <div ref={superelevationRef} className="h-full w-full">
             <ErrorBoundary label="Superelevation Diagram">
               <SuperelevationDiagram
@@ -434,6 +503,66 @@ export default function HorizontalAlignmentPage() {
               />
             </ErrorBoundary>
             </div>
+          </Panel>
+
+          <Panel
+            title="3D Corridor Viewer"
+            className="h-[420px]"
+            actions={
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => downloadAlignmentDxf(alignmentResult, alignmentParams, `horizontal_alignment_3d_${Date.now()}.dxf`)}
+                  title="Real 3D POLYLINE entities (centerline + both edges of pavement) — not point clouds"
+                  className="flex items-center gap-1 rounded-sm border border-border-hairline px-2 py-1 text-[10px] text-text-secondary hover:border-cyan/40 hover:text-cyan"
+                >
+                  <Box size={11} /> DXF (3D POLYLINE)
+                </button>
+                <button
+                  onClick={() =>
+                    downloadLandXml(alignmentResult, alignmentParams, corridorName, stationStart, `horizontal_alignment_${Date.now()}.xml`)
+                  }
+                  title="LandXML 1.2 <Alignment>/<CoordGeom> — Line/Spiral/Curve elements"
+                  className="flex items-center gap-1 rounded-sm border border-border-hairline px-2 py-1 text-[10px] text-text-secondary hover:border-emerald/40 hover:text-emerald"
+                >
+                  <FileDown size={11} /> LandXML
+                </button>
+              </div>
+            }
+          >
+            <ErrorBoundary label="3D Corridor Viewer">
+              <AlignmentViewer3D result={alignmentResult} params={alignmentParams} verticalExaggeration={verticalExaggeration} />
+            </ErrorBoundary>
+            <p className="mt-1 text-[10px] text-text-tertiary">
+              Low-poly visualization only — not CAD-accurate geometry. Vertical scale exaggerated {verticalExaggeration}× so grade and
+              superelevation roll are visible; plan scale is true.
+            </p>
+          </Panel>
+
+          <Panel
+            title="Sight Distance Envelope Overlay"
+            className="h-[380px]"
+            actions={
+              <StatusPill
+                status={sightDistanceViolation ? "fail" : "ok"}
+                label={
+                  sightDistanceViolation
+                    ? `ACTUAL OBSTRUCTION @ ${fmt(actualClearanceFt, 1)} ft — VIOLATION (need ${fmt(results.middleOrdinateFt, 1)} ft)`
+                    : `ACTUAL OBSTRUCTION @ ${fmt(actualClearanceFt, 1)} ft — CLEAR (M = ${fmt(results.middleOrdinateFt, 1)} ft)`
+                }
+              />
+            }
+          >
+            <ErrorBoundary label="Sight Distance Envelope Overlay">
+              <SightDistancePlanView
+                result={alignmentResult}
+                curveRadiusFt={curveRadiusFt}
+                middleOrdinateFt={results.middleOrdinateFt}
+                ssdFt={results.ssdFt}
+                turnDirection={turnDirection}
+                pavementWidthFt={pavementWidthFt}
+                actualClearanceFt={actualClearanceFt}
+              />
+            </ErrorBoundary>
           </Panel>
         </div>
       </div>

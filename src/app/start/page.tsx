@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { FilePlus2, FolderOpen, Sparkles, ArrowRight, Upload } from "lucide-react";
+import { FilePlus2, FolderOpen, Sparkles, ArrowRight, Upload, Zap } from "lucide-react";
 import { NumberField, SelectField } from "@/components/ui/Field";
 import { DESIGN_VEHICLE_LABELS, type DesignVehicle } from "@/lib/store";
 import { listProjects, createNewProject, loadProject, importProjectFromFile, type ProjectMeta } from "@/lib/projects";
 import { loadDemoCorridor } from "@/lib/demoCorridor";
+import { CORRIDOR_PRESETS, loadCorridorPreset } from "@/lib/presets";
 import { formatStation } from "@/lib/units";
 import { toast } from "@/lib/toast";
 
@@ -95,9 +96,32 @@ export default function StartPage() {
       )}
 
       {mode === "menu" && (
+        <div className="mt-10 w-full max-w-3xl">
+          <div className="mb-3 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-text-tertiary">
+            <Zap size={12} className="text-amber" /> 1-Click Templates — pre-configured, R ≥ R_min compliant corridors
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {CORRIDOR_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                onClick={() => loadCorridorPreset(preset)}
+                className="group flex flex-col items-start gap-1.5 rounded-sm border border-border-hairline bg-surface-1 p-4 text-left transition-all hover:border-amber/50 hover:shadow-[0_0_24px_-12px_var(--accent-warning,#f59e0b)]"
+              >
+                <span className="text-amber">
+                  <Zap size={16} />
+                </span>
+                <h3 className="text-[12px] font-semibold text-text-primary">{preset.label}</h3>
+                <span className="text-[10px] leading-relaxed text-text-tertiary">{preset.description}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {mode === "menu" && (
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="mt-4 flex items-center gap-1.5 text-[11px] text-text-tertiary hover:text-cyan"
+          className="mt-6 flex items-center gap-1.5 text-[11px] text-text-tertiary hover:text-cyan"
         >
           <Upload size={12} /> or import a project file (.highwaylab.json)
         </button>

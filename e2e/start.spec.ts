@@ -44,4 +44,25 @@ test.describe("start screen", () => {
     await page.getByRole("link", { name: "Back to start screen" }).click();
     await expect(page).toHaveURL(/\/start$/);
   });
+
+  test("shows the three 1-click TxDOT/AASHTO template cards", async ({ page }) => {
+    await expect(page.getByRole("heading", { name: "TxDOT Rural Interstate" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Urban Arterial Divided" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Mountain Pass Highway" })).toBeVisible();
+  });
+
+  test("TxDOT Rural Interstate template drops straight into a conforming Horizontal Alignment", async ({ page }) => {
+    await page.getByRole("heading", { name: "TxDOT Rural Interstate" }).click();
+    await expect(page).toHaveURL(/\/horizontal-alignment$/);
+    await expect(page.getByText("R ≥ R_MIN — CONFORMING")).toBeVisible();
+    await expect(page.getByLabel("Selected Curve Radius R")).toHaveValue("3000");
+    await expect(page.getByLabel(/Design speed/)).toHaveValue("75");
+  });
+
+  test("Mountain Pass Highway template is also conforming out of the box", async ({ page }) => {
+    await page.getByRole("heading", { name: "Mountain Pass Highway" }).click();
+    await expect(page).toHaveURL(/\/horizontal-alignment$/);
+    await expect(page.getByText("R ≥ R_MIN — CONFORMING")).toBeVisible();
+    await expect(page.getByLabel("Selected Curve Radius R")).toHaveValue("1100");
+  });
 });
