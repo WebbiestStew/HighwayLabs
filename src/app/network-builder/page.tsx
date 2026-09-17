@@ -126,7 +126,7 @@ export default function NetworkBuilderPage() {
   async function handleExportMemo() {
     const img = captureCanvasImage(findCanvas(canvasContainerRef.current), "Corridor & Interchange Layout Canvas");
 
-    generateMemoPdf({
+    await generateMemoPdf({
       moduleTitle: "Interchange & Corridor Network Layout",
       corridorName,
       designSpeedLabel: `${designSpeedMph} mph`,

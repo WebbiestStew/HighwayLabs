@@ -81,4 +81,31 @@ test.describe("horizontal alignment module", () => {
     await page.getByRole("button", { name: "Left" }).click();
     await expect(page.getByRole("button", { name: "Left" })).toHaveClass(/text-cyan/);
   });
+
+  test("terrain importer: clicking 2+ map points and draping over (mocked) real terrain updates Start Elevation and shows a Clear Terrain control", async ({ page }) => {
+    // Mock Open-Meteo rather than depending on a live third-party API in CI —
+    // the array length must match the request's point count (resampled to 40).
+    await page.route("**/api.open-meteo.com/v1/elevation**", async (route) => {
+      const url = new URL(route.request().url());
+      const n = (url.searchParams.get("latitude") ?? "").split(",").length;
+      await route.fulfill({ json: { elevation: Array.from({ length: n }, (_, i) => 200 + i) } });
+    });
+
+    await expect(page.getByRole("heading", { name: "Terrain / GIS Import" })).toBeVisible();
+    const mapContainer = page.locator(".leaflet-container");
+    await mapContainer.scrollIntoViewIfNeeded();
+    await expect(mapContainer).toBeVisible();
+    const box = await mapContainer.boundingBox();
+    if (!box) throw new Error("map container has no bounding box");
+    await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.4);
+    await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.6);
+
+    const drapeButton = page.getByRole("button", { name: "DRAPE OVER REAL TERRAIN" });
+    await expect(drapeButton).toBeEnabled();
+    await drapeButton.click();
+
+    await expect(page.getByRole("button", { name: "CLEAR TERRAIN" })).toBeVisible();
+    // Mock returns 200m at the first sample -> 200 * 3.28084 ft, rounded.
+    await expect(page.getByLabel("Start Elevation")).toHaveValue(String(Math.round(200 * 3.28084)));
+  });
 });

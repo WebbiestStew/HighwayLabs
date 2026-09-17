@@ -19,17 +19,24 @@ palette to jump anywhere; `⌘S` quick-saves the active project.
    plotting every published control point (horizontal TS/SC, vertical
    PVC/PVI/PVT, interchange location) alongside a pass/fail card per module.
 1. **Horizontal Alignment** — superelevation transition (AASHTO Method 5
-   approximation), clothoid spiral design, tangent runout / runoff, pavement
-   widening, station-by-station cross-section visualizer, axis-of-rotation
-   selector that actually re-pivots the elevation diagram. Also includes a
-   **3D corridor viewer** (React Three Fiber, orbit-controllable, vertical
-   exaggeration slider) that extrudes the full tangent–spiral–arc–spiral–
-   tangent geometry into a low-poly pavement ribbon showing superelevation
-   roll into the curve; a **sight-distance envelope overlay** (plan-view
-   SSD sight chord, required horizontal sightline offset M, and a live
-   clear/violation check against a user-entered obstruction clearance); and
-   real **3D-polyline DXF** and **LandXML `<Alignment>`/`<CoordGeom>`**
-   export, sourced from the same clothoid geometry engine as the viewer.
+   approximation) with the classic **2/3-tangent / 1/3-curve runoff split**
+   for simple (unspiraled) curves, clothoid spiral design, tangent runout /
+   runoff, pavement widening, station-by-station cross-section visualizer,
+   axis-of-rotation selector that actually re-pivots the elevation diagram.
+   Also includes a **3D corridor viewer** (React Three Fiber,
+   orbit-controllable, vertical exaggeration slider) that extrudes the full
+   tangent–spiral–arc–spiral–tangent geometry into a low-poly pavement
+   ribbon showing superelevation roll into the curve, and can drape that
+   ribbon over a **real natural-ground line** fetched from a **Terrain /
+   GIS import** (drop a GeoJSON path or click points on a satellite/street
+   basemap; elevation via Open-Meteo's free SRTM-derived API — no Mapbox/
+   USGS account needed) so the corridor visibly cuts through real
+   topography instead of flat space; a **sight-distance envelope overlay**
+   (plan-view SSD sight chord, required horizontal sightline offset M, and
+   a live clear/violation check against a user-entered obstruction
+   clearance); and real **3D-polyline DXF** and **LandXML
+   `<Alignment>`/`<CoordGeom>`** export, sourced from the same clothoid
+   geometry engine as the viewer.
 2. **Vertical Alignment** — parabolic crest/sag curves, K-factor design,
    SSD, overhead structure clearance checking, one-click sync of PVC station
    to Module 1's horizontal SC.
@@ -57,8 +64,12 @@ Every module includes a **Calculation Transparency Drawer** (full
 step-by-step proof with substituted values, an "≈ approx." badge on steps
 that are curve-fit representative models rather than closed-form equations,
 and the active AASHTO/TxDOT governing-standard citation) and exports a
-print-ready **PE Calculation Memorandum (PDF, with embedded diagram
-captures)** and **CSV / DXF** alignment data.
+print-ready **PE Calculation Memorandum** — a PDF with embedded diagram
+captures, **real LaTeX-typeset governing formulas** (MathJax SVG output,
+rendered server-side via `/api/render-formula` and rasterized into the PDF —
+not plain monospace text), a diagonal **"PRELIMINARY — NOT FOR
+CONSTRUCTION"** watermark on every page, and an engineer review/seal
+block — plus **CSV / DXF** alignment data.
 
 ## Cross-cutting features
 
@@ -143,5 +154,11 @@ otherwise Playwright starts one itself.
 - LandXML export is a good-faith interoperability export (well-formed
   `<Alignment>`/`<CoordGeom>` with Line/Spiral/Curve elements) — it hasn't
   been round-tripped against every CAD vendor's importer.
+- Terrain import borrows a real path's elevation *shape* (Open-Meteo,
+  ~90 m SRTM-derived resolution) and re-anchors it to the corridor's own
+  arc-length range — the picked path's real-world geographic position and
+  orientation are not otherwise tied to the design (no coordinate system
+  registration), and Start Elevation auto-snaps to the terrain's first
+  sample rather than the user's own design intent.
 - No multi-user accounts or server-side storage; everything is local to one
   browser unless exported as a project file.

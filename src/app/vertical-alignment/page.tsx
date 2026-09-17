@@ -103,6 +103,7 @@ export default function VerticalAlignmentPage() {
     {
       label: "Curve Length",
       formula: lengthMode === "auto" ? "L = K_min · A" : "L = user-specified",
+      formulaLatex: lengthMode === "auto" ? "L = K_{min} \\cdot A" : undefined,
       substitution: lengthMode === "auto" ? `L = ${fmt(results.kMin, 1)} · ${fmt(results.A, 2)}` : `L = ${manualLengthFt} ft`,
       result: `${fmt(results.lengthFt, 1)} ft`,
     },
@@ -127,6 +128,7 @@ export default function VerticalAlignmentPage() {
     {
       label: "Curve Elevation Equation",
       formula: "y(x) = Elev_PVC + g1·x + [(g2−g1)/(2L)]·x²",
+      formulaLatex: "y(x) = Elev_{PVC} + g_1 x + \\dfrac{g_2 - g_1}{2L}x^2",
       substitution: `g1=${g1Percent}%, g2=${g2Percent}%, L=${fmt(results.lengthFt, 1)} ft`,
       result: "Evaluated continuously — see canvas",
     },
@@ -146,6 +148,7 @@ export default function VerticalAlignmentPage() {
       label: "Stopping Sight Distance (level)",
       reference: "AASHTO Green Book Eq. 3-2",
       formula: "SSD = 1.47·V·t + V²/[30(a/32.2)]",
+      formulaLatex: "SSD = 1.47\\,V\\,t + \\dfrac{V^2}{30\\left(a/32.2\\right)}",
       substitution: `V=${designSpeedMph} mph, t=2.5s, a=11.2 ft/s²`,
       result: `${fmt(results.ssdMinFt, 1)} ft`,
     },
@@ -176,7 +179,7 @@ export default function VerticalAlignmentPage() {
   async function handleExportMemo() {
     const img = captureCanvasImage(findCanvas(canvasContainerRef.current), "Vertical Curve Coordinate Canvas");
 
-    generateMemoPdf({
+    await generateMemoPdf({
       moduleTitle: `Vertical Alignment — ${curveClass === "crest" ? "Crest" : "Sag"} Curve`,
       corridorName,
       designSpeedLabel: `${designSpeedMph} mph`,

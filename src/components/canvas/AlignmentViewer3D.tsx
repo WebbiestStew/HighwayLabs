@@ -5,12 +5,15 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Grid, Line, PerspectiveCamera } from "@react-three/drei";
 import * as THREE from "three";
 import { offsetPoint, type AlignmentParams, type AlignmentResult } from "@/lib/engineering/alignmentGeometry";
+import { terrainElevationAt, type TerrainSample } from "@/lib/terrain";
 
 interface Props {
   result: AlignmentResult;
   params: AlignmentParams;
   /** Multiplies (z - baseline) before rendering so superelevation roll and grade are visible at highway scale — real elevation changes (feet) are tiny next to plan length (hundreds/thousands of feet). */
   verticalExaggeration: number;
+  /** Real-world ground elevation along the alignment (from the Terrain / GIS Import panel) — drawn as a natural-ground line under the design ribbon so the corridor visibly cuts through real topography instead of flat space. */
+  terrainProfile?: TerrainSample[];
 }
 
 function exaggFn(baselineZ: number, exaggeration: number) {
@@ -60,6 +63,12 @@ function buildCenterlinePoints(result: AlignmentResult, exaggeration: number, ba
   return result.points.map((p) => [p.x, exagg(p.z) + 0.15, -p.y]);
 }
 
+/** Natural-ground line: same plan-view (x, y) as the design centerline, but real terrain elevation for z — the vertical gap between this and the design ribbon at any station IS the cut (ground above design) or fill (ground below design) depth. */
+function buildTerrainPoints(result: AlignmentResult, profile: TerrainSample[], exaggeration: number, baselineZ: number): [number, number, number][] {
+  const exagg = exaggFn(baselineZ, exaggeration);
+  return result.points.map((p) => [p.x, exagg(terrainElevationAt(profile, p.arcLengthFt)), -p.y]);
+}
+
 /** The point of maximum superelevation roll (mid circular-arc/spiral-only curve) — where the ribbon is most worth looking at, so the default view frames it instead of a flat overview. */
 function focusPoint(result: AlignmentResult, exaggeration: number, baselineZ: number) {
   const midArc = (result.scArcLength + result.csArcLength) / 2;
@@ -68,10 +77,14 @@ function focusPoint(result: AlignmentResult, exaggeration: number, baselineZ: nu
   return { x: p.x, y: exagg(p.z), z: -p.y, headingRad: p.headingRad };
 }
 
-function Scene({ result, params, verticalExaggeration }: Props) {
+function Scene({ result, params, verticalExaggeration, terrainProfile }: Props) {
   const baselineZ = params.startElevationFt;
   const ribbon = useMemo(() => buildRibbonGeometry(result, params, verticalExaggeration, baselineZ), [result, params, verticalExaggeration, baselineZ]);
   const centerlinePoints = useMemo(() => buildCenterlinePoints(result, verticalExaggeration, baselineZ), [result, verticalExaggeration, baselineZ]);
+  const terrainPoints = useMemo(
+    () => (terrainProfile && terrainProfile.length > 1 ? buildTerrainPoints(result, terrainProfile, verticalExaggeration, baselineZ) : null),
+    [result, terrainProfile, verticalExaggeration, baselineZ]
+  );
   const focus = useMemo(() => focusPoint(result, verticalExaggeration, baselineZ), [result, verticalExaggeration, baselineZ]);
 
   const spanX = result.points[result.points.length - 1].x - result.points[0].x;
@@ -93,6 +106,7 @@ function Scene({ result, params, verticalExaggeration }: Props) {
         <meshStandardMaterial vertexColors side={THREE.DoubleSide} roughness={0.9} />
       </mesh>
       <Line points={centerlinePoints} color="#22d3ee" lineWidth={1.5} />
+      {terrainPoints && <Line points={terrainPoints} color="#92764e" lineWidth={2} />}
       <Grid args={[Math.max(spanX * 2, 1000), Math.max(spanX * 2, 1000)]} cellColor="#1a1e25" sectionColor="#262b33" fadeDistance={overviewDist * 3} position={[0, baselineZ - 0.5, 0]} />
       <OrbitControls target={[focus.x, focus.y, focus.z]} maxDistance={overviewDist * 6} minDistance={20} />
     </>

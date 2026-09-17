@@ -1,5 +1,6 @@
 import { jsPDF } from "jspdf";
 import { downloadBlob } from "./download";
+import { renderLatexToPng } from "./latex";
 
 export interface MemoInput {
   label: string;
@@ -9,6 +10,8 @@ export interface MemoStep {
   label: string;
   reference?: string;
   formula: string;
+  /** LaTeX source for the formula (no delimiters, e.g. "R_{min} = V^2/[...]"). When present, the memo renders real typeset math in place of the plain-text `formula` line; falls back to `formula` if rendering fails. */
+  formulaLatex?: string;
   substitution: string;
   result: string;
 }
@@ -51,16 +54,40 @@ function verdictColor(status: MemoVerdict["status"]): [number, number, number] {
   return [138, 31, 31];
 }
 
-export function generateMemoPdf(doc: MemoDoc) {
+const WATERMARK_TEXT = "PRELIMINARY — NOT FOR CONSTRUCTION";
+
+/** Faint diagonal watermark, drawn under everything else on the current page. Uses a light gray fill rather than jsPDF's GState/opacity API so it degrades gracefully across jsPDF versions. */
+function addWatermark(pdf: jsPDF) {
+  const savedFont = pdf.getFont();
+  const savedSize = pdf.getFontSize();
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(34);
+  pdf.setTextColor(222, 222, 222);
+  pdf.text(WATERMARK_TEXT, PAGE_W / 2, PAGE_H / 2, { angle: 35, align: "center" });
+  pdf.setTextColor(20, 20, 20);
+  pdf.setFont(savedFont.fontName, savedFont.fontStyle);
+  pdf.setFontSize(savedSize);
+}
+
+export async function generateMemoPdf(doc: MemoDoc) {
   const pdf = new jsPDF({ unit: "mm", format: "letter" });
   let y = MARGIN;
+  addWatermark(pdf);
 
   const newPageIfNeeded = (needed: number) => {
     if (y + needed > PAGE_H - MARGIN) {
       pdf.addPage();
+      addWatermark(pdf);
       y = MARGIN;
     }
   };
+
+  // Pre-render every step's LaTeX formula (if given) in parallel — this is
+  // the only async work in an otherwise synchronous layout pass. A failed
+  // render (returns null) falls back to the plain-text formula line.
+  const formulaImages = await Promise.all(
+    doc.steps.map((s) => (s.formulaLatex ? renderLatexToPng(s.formulaLatex) : Promise.resolve(null)))
+  );
 
   // Firm header
   pdf.setFont("courier", "bold");
@@ -166,7 +193,11 @@ export function generateMemoPdf(doc: MemoDoc) {
   pdf.text("STEP-BY-STEP CALCULATION PROOF", MARGIN, y);
   y += 5.5;
   doc.steps.forEach((s, i) => {
-    newPageIfNeeded(16);
+    const formulaImg = formulaImages[i];
+    const formulaImgHmm = formulaImg ? Math.min(9, (formulaImg.heightPx / formulaImg.widthPx) * (CONTENT_W - 6)) : 0;
+    const formulaImgWmm = formulaImg ? formulaImgHmm * (formulaImg.widthPx / formulaImg.heightPx) : 0;
+
+    newPageIfNeeded(16 + formulaImgHmm);
     pdf.setFont("courier", "bold");
     pdf.setFontSize(8);
     pdf.text(`${i + 1}. ${s.label}`, MARGIN, y);
@@ -178,8 +209,18 @@ export function generateMemoPdf(doc: MemoDoc) {
     y += 4;
     pdf.setFont("courier", "normal");
     pdf.setFontSize(7.5);
-    pdf.text(`Formula:  ${s.formula}`, MARGIN + 3, y);
-    y += 3.8;
+    if (formulaImg) {
+      try {
+        pdf.addImage(formulaImg.dataUrl, "PNG", MARGIN + 3, y - 3, formulaImgWmm, formulaImgHmm, undefined, "FAST");
+        y += formulaImgHmm + 1.5;
+      } catch {
+        pdf.text(`Formula:  ${s.formula}`, MARGIN + 3, y);
+        y += 3.8;
+      }
+    } else {
+      pdf.text(`Formula:  ${s.formula}`, MARGIN + 3, y);
+      y += 3.8;
+    }
     pdf.text(`Subst.:   ${s.substitution}`, MARGIN + 3, y);
     y += 3.8;
     pdf.setFont("courier", "bold");

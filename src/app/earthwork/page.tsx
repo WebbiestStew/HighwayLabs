@@ -155,7 +155,7 @@ export default function EarthworkPage() {
   async function handleExportMemo() {
     const img = captureCanvasImage(findCanvas(canvasContainerRef.current), "Interactive Mass-Haul Diagram");
 
-    generateMemoPdf({
+    await generateMemoPdf({
       moduleTitle: "Earthwork — Prismoidal / End-Area & Mass-Haul Balance",
       corridorName,
       designSpeedLabel: `${designSpeedMph} mph`,

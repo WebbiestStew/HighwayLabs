@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import type { Topology } from "@/lib/engineering/interchangeTopologies";
 import type { LOSGrade } from "@/lib/engineering/hcmOps";
 import { losColor } from "@/lib/engineering/hcmOps";
+import { tracePath, pathMidpointAndAngle } from "./roadPath";
 
 interface Props {
   topology: Topology;
@@ -31,8 +32,6 @@ export default function InterchangeSchematic({ topology, losByRole, flashOnF = t
     const px = (x: number) => pad + x * (w - pad * 2);
     const py = (y: number) => pad + y * (h - pad * 2);
 
-    const nodeById = new Map(topology.nodes.map((n) => [n.id, n]));
-
     let frame = 0;
     const draw = () => {
       frame++;
@@ -40,6 +39,7 @@ export default function InterchangeSchematic({ topology, losByRole, flashOnF = t
       ctx.fillStyle = "#0f1115";
       ctx.fillRect(0, 0, w, h);
       ctx.strokeStyle = "#1a1e25";
+      ctx.lineWidth = 1;
       for (let gx = 0; gx < w; gx += 24) {
         ctx.beginPath();
         ctx.moveTo(gx, 0);
@@ -53,44 +53,54 @@ export default function InterchangeSchematic({ topology, losByRole, flashOnF = t
         ctx.stroke();
       }
 
-      for (const link of topology.links) {
-        const a = nodeById.get(link.from);
-        const b = nodeById.get(link.to);
-        if (!a || !b) continue;
-        const grade = losByRole[link.role] ?? "A";
-        let color = losColor(grade);
+      for (const road of topology.roads) {
+        const pts = road.points.map((p) => ({ x: px(p.x), y: py(p.y) }));
+        const grade = losByRole[road.role] ?? "A";
+        const color = losColor(grade);
         const isF = grade === "F";
         const flashPhase = Math.sin(frame / 15) * 0.5 + 0.5;
         const alpha = isF && flashOnF ? 0.4 + flashPhase * 0.6 : 1;
+        const width = road.role === "mainline" ? 7 : road.role === "crossroad" ? 5.5 : 3.5;
+
+        // Dark casing beneath the colored stroke reads as pavement edges,
+        // so roads look like roads rather than abstract graph edges.
         ctx.globalAlpha = alpha;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = link.role === "mainline" ? 6 : link.role === "crossroad" ? 4.5 : 3;
+        ctx.strokeStyle = "#05060899";
+        ctx.lineWidth = width + 2.5;
         ctx.lineCap = "round";
+        ctx.lineJoin = "round";
         ctx.beginPath();
-        ctx.moveTo(px(a.x), py(a.y));
-        // slight curve for ramp/weave links for visual distinction
-        if (link.role === "ramp" || link.role === "weave") {
-          const mx = (px(a.x) + px(b.x)) / 2 + (py(a.y) - py(b.y)) * 0.15;
-          const my = (py(a.y) + py(b.y)) / 2 + (px(b.x) - px(a.x)) * 0.15;
-          ctx.quadraticCurveTo(mx, my, px(b.x), py(b.y));
-        } else {
-          ctx.lineTo(px(b.x), py(b.y));
-        }
+        tracePath(ctx, pts);
         ctx.stroke();
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        tracePath(ctx, pts);
+        ctx.stroke();
+
+        // Dashed centerline on the wider through-roads for a "paved road" feel.
+        if (road.role === "mainline" || road.role === "crossroad") {
+          ctx.globalAlpha = alpha * 0.8;
+          ctx.strokeStyle = "#0f1115";
+          ctx.lineWidth = 1.2;
+          ctx.setLineDash([6, 5]);
+          ctx.beginPath();
+          tracePath(ctx, pts);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
         ctx.globalAlpha = 1;
 
-        // directional arrow at midpoint
-        const midx = (px(a.x) + px(b.x)) / 2;
-        const midy = (py(a.y) + py(b.y)) / 2;
-        const angle = Math.atan2(py(b.y) - py(a.y), px(b.x) - px(a.x));
+        const { x: midx, y: midy, angle } = pathMidpointAndAngle(pts);
         ctx.save();
         ctx.translate(midx, midy);
         ctx.rotate(angle);
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.moveTo(6, 0);
-        ctx.lineTo(-4, -4);
-        ctx.lineTo(-4, 4);
+        ctx.moveTo(7, 0);
+        ctx.lineTo(-5, -5);
+        ctx.lineTo(-5, 5);
         ctx.closePath();
         ctx.fill();
         ctx.restore();

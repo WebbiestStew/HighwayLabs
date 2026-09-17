@@ -16,6 +16,7 @@ import {
   uid,
 } from "@/lib/engineering/networkBuilder";
 import { TOPOLOGIES, type TopologyId } from "@/lib/engineering/interchangeTopologies";
+import { tracePath } from "./roadPath";
 
 export type BuilderTool = "draw" | "delete" | "stamp" | "pan";
 
@@ -354,25 +355,17 @@ function drawStamp(
   ctx.strokeStyle = "#34394480";
   ctx.strokeRect(-half, -half, sizePx, sizePx);
 
-  const nodeById = new Map(topology.nodes.map((n) => [n.id, n]));
   const px = (nx: number) => -half + nx * sizePx;
   const py = (ny: number) => -half + ny * sizePx;
 
-  for (const link of topology.links) {
-    const a = nodeById.get(link.from);
-    const b = nodeById.get(link.to);
-    if (!a || !b) continue;
-    ctx.strokeStyle = ROLE_COLOR[link.role] ?? "#838a97";
-    ctx.lineWidth = link.role === "mainline" ? Math.max(2, sizePx * 0.03) : Math.max(1.2, sizePx * 0.018);
+  for (const road of topology.roads) {
+    const pts = road.points.map((p) => ({ x: px(p.x), y: py(p.y) }));
+    ctx.strokeStyle = ROLE_COLOR[road.role] ?? "#838a97";
+    ctx.lineWidth = road.role === "mainline" ? Math.max(2, sizePx * 0.03) : Math.max(1.2, sizePx * 0.018);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
     ctx.beginPath();
-    ctx.moveTo(px(a.x), py(a.y));
-    if (link.role === "ramp" || link.role === "weave") {
-      const mx = (px(a.x) + px(b.x)) / 2 + (py(a.y) - py(b.y)) * 0.15;
-      const my = (py(a.y) + py(b.y)) / 2 + (px(b.x) - px(a.x)) * 0.15;
-      ctx.quadraticCurveTo(mx, my, px(b.x), py(b.y));
-    } else {
-      ctx.lineTo(px(b.x), py(b.y));
-    }
+    tracePath(ctx, pts);
     ctx.stroke();
   }
   ctx.restore();

@@ -7,22 +7,32 @@ export type TopologyId =
   | "turbine"
   | "frontage";
 
-export interface SchematicNode {
-  id: string;
+export interface SchematicPoint {
   x: number; // normalized 0-1
   y: number;
+}
+
+export interface SchematicNode extends SchematicPoint {
   label?: string;
 }
-export interface SchematicLink {
-  from: string;
-  to: string;
+
+/**
+ * A road segment as a multi-point path (2+ points), rendered as a smooth
+ * curve through them — not just a straight line between two endpoints.
+ * Real interchange shapes (a loop ramp, a diamond's fanned ramp legs, a DDI's
+ * crossover, a stack's flyover sweep) need intermediate control points to
+ * read as the actual interchange type rather than an abstract node graph.
+ */
+export interface SchematicRoad {
   role: "mainline" | "ramp" | "weave" | "crossroad";
+  points: SchematicPoint[];
 }
+
 export interface Topology {
   id: TopologyId;
   label: string;
-  nodes: SchematicNode[];
-  links: SchematicLink[];
+  nodes: SchematicNode[]; // labeled anchor points only — not tied 1:1 to road endpoints
+  roads: SchematicRoad[];
 }
 
 export const TOPOLOGIES: Record<TopologyId, Topology> = {
@@ -30,160 +40,196 @@ export const TOPOLOGIES: Record<TopologyId, Topology> = {
     id: "diamond",
     label: "Conventional Diamond",
     nodes: [
-      { id: "ml_w", x: 0.02, y: 0.5, label: "MAINLINE W" },
-      { id: "ml_e", x: 0.98, y: 0.5, label: "MAINLINE E" },
-      { id: "n1", x: 0.38, y: 0.5 },
-      { id: "n2", x: 0.62, y: 0.5 },
-      { id: "xr_n1", x: 0.38, y: 0.12, label: "N RAMP TERM." },
-      { id: "xr_n2", x: 0.62, y: 0.12, label: "N RAMP TERM." },
-      { id: "cr_w", x: 0.05, y: 0.12, label: "X-ROAD W" },
-      { id: "cr_e", x: 0.95, y: 0.12, label: "X-ROAD E" },
+      { x: 0.02, y: 0.5, label: "MAINLINE W" },
+      { x: 0.98, y: 0.5, label: "MAINLINE E" },
+      { x: 0.5, y: 0.03, label: "X-ROAD N" },
+      { x: 0.5, y: 0.97, label: "X-ROAD S" },
     ],
-    links: [
-      { from: "ml_w", to: "n1", role: "mainline" },
-      { from: "n1", to: "n2", role: "mainline" },
-      { from: "n2", to: "ml_e", role: "mainline" },
-      { from: "n1", to: "xr_n1", role: "ramp" },
-      { from: "n2", to: "xr_n2", role: "ramp" },
-      { from: "cr_w", to: "xr_n1", role: "crossroad" },
-      { from: "xr_n1", to: "xr_n2", role: "crossroad" },
-      { from: "xr_n2", to: "cr_e", role: "crossroad" },
+    roads: [
+      // The crossroad actually crosses the freeway (grade-separated) —
+      // both continuous, uninterrupted straight lines through the center.
+      { role: "mainline", points: [{ x: 0.02, y: 0.5 }, { x: 0.98, y: 0.5 }] },
+      { role: "crossroad", points: [{ x: 0.5, y: 0.03 }, { x: 0.5, y: 0.97 }] },
+      // Each ramp "tent" is two ramp legs sharing a gore near the crossroad
+      // — one pair north of the freeway, one pair south — the shape this
+      // traces out (mainline + two tents + crossroad) is what a diamond
+      // interchange actually looks like from above.
+      { role: "ramp", points: [{ x: 0.3, y: 0.5 }, { x: 0.5, y: 0.28 }, { x: 0.7, y: 0.5 }] },
+      { role: "ramp", points: [{ x: 0.3, y: 0.5 }, { x: 0.5, y: 0.72 }, { x: 0.7, y: 0.5 }] },
     ],
   },
   parclo: {
     id: "parclo",
     label: "Partial Cloverleaf (Parclo A-4 / B-4)",
     nodes: [
-      { id: "ml_w", x: 0.02, y: 0.55, label: "MAINLINE W" },
-      { id: "ml_e", x: 0.98, y: 0.55, label: "MAINLINE E" },
-      { id: "n1", x: 0.38, y: 0.55 },
-      { id: "n2", x: 0.62, y: 0.55 },
-      { id: "loop1", x: 0.3, y: 0.85, label: "LOOP RAMP" },
-      { id: "loop2", x: 0.7, y: 0.2, label: "LOOP RAMP" },
-      { id: "cr_w", x: 0.05, y: 0.15, label: "X-ROAD W" },
-      { id: "cr_e", x: 0.95, y: 0.15, label: "X-ROAD E" },
-      { id: "xr", x: 0.5, y: 0.15, label: "X-ROAD" },
+      { x: 0.02, y: 0.5, label: "MAINLINE W" },
+      { x: 0.98, y: 0.5, label: "MAINLINE E" },
+      { x: 0.5, y: 0.03, label: "X-ROAD N" },
+      { x: 0.5, y: 0.97, label: "X-ROAD S" },
+      { x: 0.85, y: 0.28, label: "LOOP RAMP" },
     ],
-    links: [
-      { from: "ml_w", to: "n1", role: "mainline" },
-      { from: "n1", to: "n2", role: "mainline" },
-      { from: "n2", to: "ml_e", role: "mainline" },
-      { from: "n1", to: "loop1", role: "ramp" },
-      { from: "loop1", to: "xr", role: "ramp" },
-      { from: "n2", to: "loop2", role: "ramp" },
-      { from: "loop2", to: "xr", role: "ramp" },
-      { from: "cr_w", to: "xr", role: "crossroad" },
-      { from: "xr", to: "cr_e", role: "crossroad" },
+    roads: [
+      { role: "mainline", points: [{ x: 0.02, y: 0.5 }, { x: 0.98, y: 0.5 }] },
+      { role: "crossroad", points: [{ x: 0.5, y: 0.03 }, { x: 0.5, y: 0.97 }] },
+      // Direct diagonal ramp in one quadrant (the non-loop movement).
+      { role: "ramp", points: [{ x: 0.3, y: 0.5 }, { x: 0.42, y: 0.34 }, { x: 0.5, y: 0.24 }] },
+      // A real loop ramp in the diagonally-opposite quadrant: it bulges out
+      // past the crossroad before curving back to meet it — a partial
+      // cloverleaf's signature shape, only present in one quadrant (hence
+      // "partial").
+      {
+        role: "ramp",
+        points: [
+          { x: 0.7, y: 0.5 },
+          { x: 0.86, y: 0.42 },
+          { x: 0.9, y: 0.22 },
+          { x: 0.72, y: 0.14 },
+          { x: 0.5, y: 0.16 },
+        ],
+      },
     ],
   },
   spui: {
     id: "spui",
     label: "Single-Point Urban Interchange",
     nodes: [
-      { id: "ml_w", x: 0.02, y: 0.55, label: "MAINLINE W" },
-      { id: "ml_e", x: 0.98, y: 0.55, label: "MAINLINE E" },
-      { id: "sp", x: 0.5, y: 0.5, label: "SINGLE POINT" },
-      { id: "cr_w", x: 0.05, y: 0.1, label: "X-ROAD W" },
-      { id: "cr_e", x: 0.95, y: 0.1, label: "X-ROAD E" },
+      { x: 0.02, y: 0.5, label: "MAINLINE W" },
+      { x: 0.98, y: 0.5, label: "MAINLINE E" },
+      { x: 0.5, y: 0.5, label: "SINGLE POINT" },
+      { x: 0.13, y: 0.87, label: "X-ROAD W" },
+      { x: 0.87, y: 0.13, label: "X-ROAD E" },
     ],
-    links: [
-      { from: "ml_w", to: "sp", role: "mainline" },
-      { from: "sp", to: "ml_e", role: "mainline" },
-      { from: "cr_w", to: "sp", role: "crossroad" },
-      { from: "sp", to: "cr_e", role: "crossroad" },
-      { from: "ml_w", to: "cr_e", role: "ramp" },
-      { from: "ml_e", to: "cr_w", role: "ramp" },
+    roads: [
+      { role: "mainline", points: [{ x: 0.02, y: 0.5 }, { x: 0.98, y: 0.5 }] },
+      // Crossroad crosses the mainline at a shallow diagonal through the
+      // single signalized point — the defining feature of a SPUI: both
+      // ramp terminals are collapsed into this one intersection.
+      { role: "crossroad", points: [{ x: 0.15, y: 0.85 }, { x: 0.5, y: 0.5 }, { x: 0.85, y: 0.15 }] },
+      // Free-flow right-turn bypass ramps that curve from the mainline
+      // around the signal to actually merge onto the crossroad (x+y=1
+      // along its diagonal) rather than dangling in empty space.
+      { role: "ramp", points: [{ x: 0.32, y: 0.5 }, { x: 0.15, y: 0.62 }, { x: 0.22, y: 0.78 }] },
+      { role: "ramp", points: [{ x: 0.68, y: 0.5 }, { x: 0.85, y: 0.38 }, { x: 0.78, y: 0.22 }] },
     ],
   },
   ddi: {
     id: "ddi",
     label: "Diverging Diamond Interchange",
     nodes: [
-      { id: "ml_w", x: 0.02, y: 0.5, label: "MAINLINE W" },
-      { id: "ml_e", x: 0.98, y: 0.5, label: "MAINLINE E" },
-      { id: "x1", x: 0.35, y: 0.35, label: "CROSSOVER 1" },
-      { id: "x2", x: 0.65, y: 0.65, label: "CROSSOVER 2" },
-      { id: "cr_w", x: 0.05, y: 0.12, label: "X-ROAD W" },
-      { id: "cr_e", x: 0.95, y: 0.12, label: "X-ROAD E" },
+      { x: 0.02, y: 0.5, label: "MAINLINE W" },
+      { x: 0.98, y: 0.5, label: "MAINLINE E" },
+      { x: 0.5, y: 0.03, label: "X-ROAD N" },
+      { x: 0.5, y: 0.97, label: "X-ROAD S" },
+      { x: 0.44, y: 0.36, label: "CROSSOVER 1" },
+      { x: 0.44, y: 0.64, label: "CROSSOVER 2" },
     ],
-    links: [
-      { from: "ml_w", to: "x1", role: "mainline" },
-      { from: "x1", to: "x2", role: "crossroad" },
-      { from: "x2", to: "ml_e", role: "mainline" },
-      { from: "cr_w", to: "x1", role: "crossroad" },
-      { from: "x2", to: "cr_e", role: "crossroad" },
-      { from: "x1", to: "cr_e", role: "ramp" },
-      { from: "x2", to: "cr_w", role: "ramp" },
+    roads: [
+      // Mainline passes straight through, grade-separated, unaffected by
+      // the crossover maneuver happening on the crossroad crossing it.
+      { role: "mainline", points: [{ x: 0.02, y: 0.5 }, { x: 0.98, y: 0.5 }] },
+      // The crossroad's two directions swap sides at crossover 1 (north of
+      // the freeway), run parallel-but-swapped straight across the freeway
+      // crossing, then swap back at crossover 2 — the "bowtie" shape that
+      // makes a DDI recognizable at a glance, and the reason opposing left
+      // turns need no signal phase.
+      {
+        role: "crossroad",
+        points: [
+          { x: 0.44, y: 0.03 }, { x: 0.44, y: 0.36 },
+          { x: 0.56, y: 0.42 }, { x: 0.56, y: 0.58 },
+          { x: 0.44, y: 0.64 }, { x: 0.44, y: 0.97 },
+        ],
+      },
+      {
+        role: "crossroad",
+        points: [
+          { x: 0.56, y: 0.03 }, { x: 0.56, y: 0.36 },
+          { x: 0.44, y: 0.42 }, { x: 0.44, y: 0.58 },
+          { x: 0.56, y: 0.64 }, { x: 0.56, y: 0.97 },
+        ],
+      },
+      // Ramp terminals coincide with the crossover points themselves.
+      { role: "ramp", points: [{ x: 0.15, y: 0.5 }, { x: 0.44, y: 0.5 }] },
+      { role: "ramp", points: [{ x: 0.85, y: 0.5 }, { x: 0.56, y: 0.5 }] },
     ],
   },
   stack: {
     id: "stack",
     label: "4-Level Directional Stack",
     nodes: [
-      { id: "ml_w", x: 0.02, y: 0.5, label: "MAINLINE W" },
-      { id: "ml_e", x: 0.98, y: 0.5, label: "MAINLINE E" },
-      { id: "cr_s", x: 0.5, y: 0.95, label: "X-ROAD S" },
-      { id: "cr_n", x: 0.5, y: 0.05, label: "X-ROAD N" },
-      { id: "core", x: 0.5, y: 0.5, label: "STACK CORE" },
-      { id: "fly1", x: 0.3, y: 0.25, label: "FLYOVER" },
-      { id: "fly2", x: 0.7, y: 0.75, label: "FLYOVER" },
+      { x: 0.02, y: 0.5, label: "MAINLINE W" },
+      { x: 0.98, y: 0.5, label: "MAINLINE E" },
+      { x: 0.5, y: 0.05, label: "X-ROAD N" },
+      { x: 0.5, y: 0.95, label: "X-ROAD S" },
     ],
-    links: [
-      { from: "ml_w", to: "core", role: "mainline" },
-      { from: "core", to: "ml_e", role: "mainline" },
-      { from: "cr_s", to: "core", role: "crossroad" },
-      { from: "core", to: "cr_n", role: "crossroad" },
-      { from: "ml_w", to: "fly1", role: "ramp" },
-      { from: "fly1", to: "cr_n", role: "ramp" },
-      { from: "cr_s", to: "fly2", role: "ramp" },
-      { from: "fly2", to: "ml_e", role: "ramp" },
+    roads: [
+      { role: "mainline", points: [{ x: 0.02, y: 0.5 }, { x: 0.98, y: 0.5 }] },
+      { role: "crossroad", points: [{ x: 0.5, y: 0.05 }, { x: 0.5, y: 0.95 }] },
+      // Four large sweeping flyover ramps, one per quadrant, at
+      // large/gentle radii — the visual signature that distinguishes a
+      // high-design stack from a tight-loop cloverleaf. Each is a distinct
+      // directional movement stacked at its own level in reality.
+      { role: "ramp", points: [{ x: 0.05, y: 0.5 }, { x: 0.22, y: 0.22 }, { x: 0.47, y: 0.06 }] },
+      { role: "ramp", points: [{ x: 0.95, y: 0.5 }, { x: 0.78, y: 0.22 }, { x: 0.53, y: 0.06 }] },
+      { role: "ramp", points: [{ x: 0.05, y: 0.5 }, { x: 0.22, y: 0.78 }, { x: 0.47, y: 0.94 }] },
+      { role: "ramp", points: [{ x: 0.95, y: 0.5 }, { x: 0.78, y: 0.78 }, { x: 0.53, y: 0.94 }] },
     ],
   },
   turbine: {
     id: "turbine",
     label: "4-Way Directional Turbine",
     nodes: [
-      { id: "ml_w", x: 0.02, y: 0.5, label: "MAINLINE W" },
-      { id: "ml_e", x: 0.98, y: 0.5, label: "MAINLINE E" },
-      { id: "cr_s", x: 0.5, y: 0.95, label: "X-ROAD S" },
-      { id: "cr_n", x: 0.5, y: 0.05, label: "X-ROAD N" },
-      { id: "core", x: 0.5, y: 0.5, label: "TURBINE CORE" },
-      { id: "sw1", x: 0.28, y: 0.28 },
-      { id: "sw2", x: 0.72, y: 0.28 },
-      { id: "sw3", x: 0.72, y: 0.72 },
-      { id: "sw4", x: 0.28, y: 0.72 },
+      { x: 0.02, y: 0.5, label: "MAINLINE W" },
+      { x: 0.98, y: 0.5, label: "MAINLINE E" },
+      { x: 0.5, y: 0.05, label: "X-ROAD N" },
+      { x: 0.5, y: 0.95, label: "X-ROAD S" },
     ],
-    links: [
-      { from: "ml_w", to: "core", role: "mainline" },
-      { from: "core", to: "ml_e", role: "mainline" },
-      { from: "cr_s", to: "core", role: "crossroad" },
-      { from: "core", to: "cr_n", role: "crossroad" },
-      { from: "core", to: "sw1", role: "ramp" },
-      { from: "core", to: "sw2", role: "ramp" },
-      { from: "core", to: "sw3", role: "ramp" },
-      { from: "core", to: "sw4", role: "ramp" },
+    roads: [
+      { role: "mainline", points: [{ x: 0.02, y: 0.5 }, { x: 0.98, y: 0.5 }] },
+      { role: "crossroad", points: [{ x: 0.5, y: 0.05 }, { x: 0.5, y: 0.95 }] },
+      // Four DISTINCT ramps (deliberately not sharing endpoints — each
+      // merges onto its approach at a different station, like real gores),
+      // each bulging outward and curving the SAME rotational sense around
+      // the center — a spiral/pinwheel pattern of 4 separate petals,
+      // distinct from a stack's symmetric criss-crossing sweeps.
+      { role: "ramp", points: [{ x: 0.22, y: 0.5 }, { x: 0.08, y: 0.22 }, { x: 0.4, y: 0.1 }] },
+      { role: "ramp", points: [{ x: 0.6, y: 0.1 }, { x: 0.92, y: 0.22 }, { x: 0.9, y: 0.5 }] },
+      { role: "ramp", points: [{ x: 0.78, y: 0.5 }, { x: 0.92, y: 0.78 }, { x: 0.6, y: 0.9 }] },
+      { role: "ramp", points: [{ x: 0.4, y: 0.9 }, { x: 0.08, y: 0.78 }, { x: 0.1, y: 0.5 }] },
     ],
   },
   frontage: {
     id: "frontage",
     label: "TxDOT Frontage Road Corridor (w/ U-Turn)",
     nodes: [
-      { id: "ml_w", x: 0.02, y: 0.4, label: "FREEWAY MAINLINE W" },
-      { id: "ml_e", x: 0.98, y: 0.4, label: "FREEWAY MAINLINE E" },
-      { id: "fr_w", x: 0.02, y: 0.75, label: "FRONTAGE W" },
-      { id: "fr_e", x: 0.98, y: 0.75, label: "FRONTAGE E" },
-      { id: "uturn1", x: 0.3, y: 0.9, label: "TEXAS U-TURN" },
-      { id: "uturn2", x: 0.7, y: 0.9, label: "TEXAS U-TURN" },
-      { id: "xr", x: 0.5, y: 0.75, label: "X-ROAD BRIDGE" },
+      { x: 0.02, y: 0.25, label: "FREEWAY MAINLINE W" },
+      { x: 0.98, y: 0.25, label: "FREEWAY MAINLINE E" },
+      { x: 0.02, y: 0.6, label: "FRONTAGE W" },
+      { x: 0.98, y: 0.6, label: "FRONTAGE E" },
+      { x: 0.5, y: 0.85, label: "X-ROAD BRIDGE" },
     ],
-    links: [
-      { from: "ml_w", to: "ml_e", role: "mainline" },
-      { from: "fr_w", to: "xr", role: "crossroad" },
-      { from: "xr", to: "fr_e", role: "crossroad" },
-      { from: "fr_w", to: "uturn1", role: "ramp" },
-      { from: "uturn1", to: "fr_e", role: "ramp" },
-      { from: "fr_e", to: "uturn2", role: "ramp" },
-      { from: "uturn2", to: "fr_w", role: "ramp" },
+    roads: [
+      { role: "mainline", points: [{ x: 0.02, y: 0.25 }, { x: 0.98, y: 0.25 }] },
+      { role: "crossroad", points: [{ x: 0.5, y: 0.95 }, { x: 0.5, y: 0.1 }] },
+      { role: "ramp", points: [{ x: 0.02, y: 0.6 }, { x: 0.38, y: 0.6 }] },
+      { role: "ramp", points: [{ x: 0.62, y: 0.6 }, { x: 0.98, y: 0.6 }] },
+      // A Texas U-turn: frontage-road traffic loops back on itself just
+      // short of the crossroad, via a wide bulb, to reach the other side
+      // without the crossroad ever needing a left-turn phase.
+      {
+        role: "ramp",
+        points: [
+          { x: 0.36, y: 0.6 }, { x: 0.32, y: 0.82 }, { x: 0.2, y: 0.88 },
+          { x: 0.1, y: 0.78 }, { x: 0.14, y: 0.62 }, { x: 0.02, y: 0.6 },
+        ],
+      },
+      {
+        role: "ramp",
+        points: [
+          { x: 0.64, y: 0.6 }, { x: 0.68, y: 0.82 }, { x: 0.8, y: 0.88 },
+          { x: 0.9, y: 0.78 }, { x: 0.86, y: 0.62 }, { x: 0.98, y: 0.6 },
+        ],
+      },
     ],
   },
 };

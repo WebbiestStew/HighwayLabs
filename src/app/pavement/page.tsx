@@ -76,12 +76,15 @@ export default function PavementPage() {
       reference: "AASHTO Guide for Design of Pavement Structures, 1993",
       formula:
         "log10(W18) = ZR·S0 + 9.36·log10(SN+1) − 0.20 + log10(ΔPSI/2.7)/(0.40+1094/(SN+1)^5.19) + 2.32·log10(MR) − 8.07",
+      formulaLatex:
+        "\\log_{10}(W_{18}) = Z_R S_0 + 9.36\\log_{10}(SN{+}1) - 0.20 + \\dfrac{\\log_{10}\\!\\left(\\frac{\\Delta PSI}{2.7}\\right)}{0.40 + \\frac{1094}{(SN{+}1)^{5.19}}} + 2.32\\log_{10}(M_R) - 8.07",
       substitution: `W18=${fmt(w18, 0)}, ZR=${fmt(results.zR, 3)}, S0=${s0}, MR=${mrPsi} psi — solved iteratively (bisection)`,
       result: `SN_required = ${fmt(results.snRequired, 2)}`,
     },
     {
       label: "Provided Structural Number",
       formula: "SN_prov = a1·D1 + a2·D2·m2 + a3·D3·m3",
+      formulaLatex: "SN_{prov} = a_1 D_1 + a_2 D_2 m_2 + a_3 D_3 m_3",
       substitution: `${a1}·${d1} + ${a2}·${d2}·${m2} + ${a3}·${d3}·${m3}`,
       result: fmt(results.snProvided, 2),
     },
@@ -109,7 +112,7 @@ export default function PavementPage() {
   async function handleExportMemo() {
     const img = captureCanvasImage(findCanvas(canvasContainerRef.current), "Layered Pavement Cross-Section");
 
-    generateMemoPdf({
+    await generateMemoPdf({
       moduleTitle: "Pavement Structural Number — 1993 AASHTO Empirical Design",
       corridorName,
       designSpeedLabel: `${designSpeedMph} mph`,

@@ -7,6 +7,8 @@ export interface CalcStep {
   label: string;
   reference?: string; // AASHTO/HCM table/exhibit reference
   formula: string;
+  /** LaTeX source for the formula, rendered as real typeset math in the exported PE memorandum (falls back to the plain-text `formula` string if omitted or if rendering fails). Not used in the on-screen drawer, which always shows the plain-text form. */
+  formulaLatex?: string;
   substitution: string;
   result: string;
   /**

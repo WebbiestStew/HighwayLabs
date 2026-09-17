@@ -24,10 +24,15 @@ import { generateMemoPdf } from "@/lib/export/memo";
 import { downloadCsv, downloadDxf } from "@/lib/export/download";
 import { downloadAlignmentDxf, downloadLandXml } from "@/lib/export/alignmentExport";
 import { captureCanvasImage, captureSvgImage, findCanvas, findSvg } from "@/lib/export/captureImage";
+import type { TerrainSample } from "@/lib/terrain";
 
 const AlignmentViewer3D = dynamic(() => import("@/components/canvas/AlignmentViewer3D"), {
   ssr: false,
   loading: () => <div className="flex h-full items-center justify-center text-[10px] text-text-tertiary">LOADING 3D VIEWER…</div>,
+});
+const TerrainImporter = dynamic(() => import("@/components/TerrainImporter"), {
+  ssr: false,
+  loading: () => <div className="flex h-full items-center justify-center text-[10px] text-text-tertiary">LOADING MAP…</div>,
 });
 
 export default function HorizontalAlignmentPage() {
@@ -69,6 +74,8 @@ export default function HorizontalAlignmentPage() {
   const [gradePercent, setGradePercent] = useState(0);
   const [verticalExaggeration, setVerticalExaggeration] = useState(8);
   const [actualClearanceFt, setActualClearanceFt] = useState(20);
+  // Ephemeral (not persisted) — a live fetch result, not a design parameter.
+  const [terrainProfile, setTerrainProfile] = useState<TerrainSample[] | undefined>(undefined);
 
   usePersistedForm(
     "highwaylab.horizontal-alignment",
@@ -154,6 +161,7 @@ export default function HorizontalAlignmentPage() {
       label: "Minimum Radius for e_max",
       reference: "AASHTO Green Book Eq. 3-8 (US)",
       formula: "R_min = V² / [15(0.01·e_max + f_max)]",
+      formulaLatex: "R_{min} = \\dfrac{V^2}{15\\left(0.01\\,e_{max} + f_{max}\\right)}",
       substitution: `R_min = ${designSpeedMph}² / [15(0.01·${eMaxPercent} + ${fmt(results.fMax, 3)})]`,
       result: `${fmt(results.rMinFt, 1)} ft`,
     },
@@ -167,6 +175,7 @@ export default function HorizontalAlignmentPage() {
       label: "AASHTO Method 5 Design Superelevation",
       reference: "Empirical curve-fit approximation of AASHTO Method 5",
       formula: "e_d = e_max·[(1/R − 1/R₀)/(1/R_min − 1/R₀)]^1.5",
+      formulaLatex: "e_d = e_{max}\\left[\\dfrac{1/R - 1/R_0}{1/R_{min} - 1/R_0}\\right]^{1.5}",
       substitution: `R = ${fmt(curveRadiusFt, 0)} ft`,
       result: `${fmt(results.eDesignPercent, 1)}%`,
       confidence: "approximated",
@@ -194,12 +203,14 @@ export default function HorizontalAlignmentPage() {
       label: "Minimum Spiral Length (Barnett / comfort)",
       reference: "AASHTO / Barnett formula, C=" + lateralAccelC + " ft/s³",
       formula: "L_s,min = 1.6·V³ / (R·C)",
+      formulaLatex: "L_{s,min} = \\dfrac{1.6\\,V^3}{R \\cdot C}",
       substitution: `L_s,min = 1.6·${designSpeedMph}³ / (${fmt(curveRadiusFt, 0)}·${lateralAccelC})`,
       result: `${fmt(results.spiralLengthMinFt, 1)} ft`,
     },
     {
       label: "Clothoid Spiral Parameter",
       formula: "A = √(L_s · R)",
+      formulaLatex: "A = \\sqrt{L_s \\cdot R}",
       substitution: `A = √(${fmt(Math.max(results.spiralLengthMinFt, results.superelevationRunoffFt), 1)} · ${fmt(curveRadiusFt, 0)})`,
       result: fmt(results.spiralParameterA, 1),
     },
@@ -207,12 +218,14 @@ export default function HorizontalAlignmentPage() {
       label: "Stopping Sight Distance",
       reference: "AASHTO Green Book Eq. 3-2, t=2.5s, a=11.2 ft/s²",
       formula: "SSD = 1.47·V·t + V²/[30(a/32.2)]",
+      formulaLatex: "SSD = 1.47\\,V\\,t + \\dfrac{V^2}{30\\left(a/32.2\\right)}",
       substitution: `SSD = 1.47·${designSpeedMph}·2.5 + ${designSpeedMph}²/[30(11.2/32.2)]`,
       result: `${fmt(results.ssdFt, 1)} ft`,
     },
     {
       label: "Horizontal Sightline Offset (Middle Ordinate)",
       formula: "M = R·[1 − cos(28.65·SSD/R)]",
+      formulaLatex: "M = R\\left[1 - \\cos\\!\\left(\\dfrac{28.65\\,SSD}{R}\\right)\\right]",
       substitution: `M = ${fmt(curveRadiusFt, 0)}·[1 − cos(28.65·${fmt(results.ssdFt, 1)}/${fmt(curveRadiusFt, 0)})]`,
       result: `${fmt(results.middleOrdinateFt, 2)} ft`,
     },
@@ -220,12 +233,24 @@ export default function HorizontalAlignmentPage() {
       label: "Mechanical Pavement Widening",
       reference: `Design vehicle: ${designVehicle}, wheelbase ${fmt(results.widening.wheelbaseFt, 1)} ft`,
       formula: "Wc = N·W + c + (R − √(R² − L²)) + Z,  Z = V/(9.5√R)",
+      formulaLatex: "W_c = NW + c + \\left(R - \\sqrt{R^2 - L^2}\\right) + Z, \\quad Z = \\dfrac{V}{9.5\\sqrt{R}}",
       substitution: results.widening.applicable
         ? `Wc = ${lanesPerDirection}·${laneWidthFt} + 2.0 + ${fmt(results.widening.trackShiftFt, 3)} + ${fmt(results.widening.z, 3)}`
         : "Not applicable — R exceeds widening threshold or vehicle wheelbase too short",
       result: results.widening.applicable ? `${fmt(results.widening.wcFt, 2)} ft` : "N/A",
     },
   ];
+
+  function handleTerrainLoaded(profile: TerrainSample[]) {
+    setTerrainProfile(profile);
+    // Anchor the design profile's baseline to real ground at the start of
+    // the corridor — without this, the 3D viewer's vertical exaggeration
+    // (which pivots around startElevationFt) would blow up an arbitrary,
+    // probably huge gap between an unrelated design elevation and real
+    // terrain (e.g. a preset's 650 ft vs. Austin's ~600-900 ft terrain)
+    // into a wildly exaggerated, meaningless offset.
+    if (profile.length > 0) setStartElevationFt(Math.round(profile[0].elevationFt));
+  }
 
   async function handleExportMemo() {
     const images = (
@@ -235,7 +260,7 @@ export default function HorizontalAlignmentPage() {
       ])
     ).filter((img): img is NonNullable<typeof img> => img !== null);
 
-    generateMemoPdf({
+    await generateMemoPdf({
       moduleTitle: "Horizontal Alignment & Superelevation Transition",
       corridorName,
       designSpeedLabel: `${designSpeedMph} mph`,
@@ -500,6 +525,7 @@ export default function HorizontalAlignmentPage() {
                 tsStationFt={stationStart}
                 unitSystem={unitSystem}
                 axisOfRotation={axisOfRotation}
+                transitionType={transitionType}
               />
             </ErrorBoundary>
             </div>
@@ -530,11 +556,41 @@ export default function HorizontalAlignmentPage() {
             }
           >
             <ErrorBoundary label="3D Corridor Viewer">
-              <AlignmentViewer3D result={alignmentResult} params={alignmentParams} verticalExaggeration={verticalExaggeration} />
+              <AlignmentViewer3D
+                result={alignmentResult}
+                params={alignmentParams}
+                verticalExaggeration={verticalExaggeration}
+                terrainProfile={terrainProfile}
+              />
             </ErrorBoundary>
             <p className="mt-1 text-[10px] text-text-tertiary">
               Low-poly visualization only — not CAD-accurate geometry. Vertical scale exaggerated {verticalExaggeration}× so grade and
               superelevation roll are visible; plan scale is true.
+              {terrainProfile && <span className="text-[#c9a876]"> Brown line = real natural ground (Open-Meteo/SRTM).</span>}
+            </p>
+          </Panel>
+
+          <Panel
+            title="Terrain / GIS Import"
+            className="h-[420px]"
+            actions={
+              terrainProfile && (
+                <button
+                  onClick={() => setTerrainProfile(undefined)}
+                  className="rounded-sm border border-border-hairline px-2 py-1 text-[10px] text-text-secondary hover:border-crimson/40 hover:text-crimson"
+                >
+                  CLEAR TERRAIN
+                </button>
+              )
+            }
+          >
+            <ErrorBoundary label="Terrain / GIS Import">
+              <TerrainImporter totalShownLengthFt={alignmentResult.stArcLength + 2 * leadTangentFt} onTerrainLoaded={handleTerrainLoaded} />
+            </ErrorBoundary>
+            <p className="mt-1 text-[10px] text-text-tertiary">
+              Drop a GeoJSON path or click 2+ points on the map, then fetch real ground elevation (Open-Meteo, SRTM-derived, free/keyless) —
+              draped onto the corridor above as the natural-ground line. Fetching terrain resets Start Elevation to match real ground at the
+              corridor start.
             </p>
           </Panel>
 

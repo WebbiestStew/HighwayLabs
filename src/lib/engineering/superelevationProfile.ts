@@ -33,15 +33,40 @@ export function slopesAtOffset(x: number, g: TransitionGeometry) {
   return { lowSidePercent: lowSide, highSidePercent: highSide };
 }
 
-export const TRANSITION_STAGES = (g: TransitionGeometry) => [
-  { label: "Normal Crown (NC)", x: -1 },
-  { label: "Begin Tangent Runout (TS)", x: 0 },
-  { label: "Adverse Crown Removed / Level Outer", x: g.tangentRunoutFt },
-  {
-    label: "Reverse Crown",
-    x:
-      g.tangentRunoutFt +
-      g.superelevationRunoffFt * (Math.abs(g.eNCPercent) / Math.max(Math.abs(g.eDesignPercent), 0.01)),
-  },
-  { label: "Full Superelevation (SC)", x: g.tangentRunoutFt + g.superelevationRunoffFt },
-];
+export type TransitionType = "spiral" | "linear";
+
+/**
+ * For a spiraled curve, the spiral itself IS the transition — full
+ * superelevation is reached exactly at SC (spiral-to-curve), so the whole
+ * runoff length sits between TS and SC. A simple (unspiraled) curve has no
+ * transition curve to run the superelevation over, so AASHTO's classic
+ * guidance splits the runoff length Lr with roughly 2/3 on the tangent
+ * (before PC) and 1/3 carried onto the curve past PC — the road is already
+ * curving before the cross slope finishes rotating. This only changes where
+ * the PC marker falls relative to full superelevation; slopesAtOffset's
+ * cross-slope-vs-offset ramp is unaffected either way.
+ */
+export const TRANSITION_STAGES = (g: TransitionGeometry, transitionType: TransitionType = "spiral") => {
+  const stages = [
+    { label: "Normal Crown (NC)", x: -1 },
+    { label: "Begin Tangent Runout (TS)", x: 0 },
+    { label: "Adverse Crown Removed / Level Outer", x: g.tangentRunoutFt },
+    {
+      label: "Reverse Crown",
+      x:
+        g.tangentRunoutFt +
+        g.superelevationRunoffFt * (Math.abs(g.eNCPercent) / Math.max(Math.abs(g.eDesignPercent), 0.01)),
+    },
+    {
+      label: transitionType === "linear" ? "Full Superelevation (1/3 Lr Beyond PC)" : "Full Superelevation (SC)",
+      x: g.tangentRunoutFt + g.superelevationRunoffFt,
+    },
+  ];
+  if (transitionType === "linear") {
+    stages.push({
+      label: "Point of Curvature (PC) — 2/3 of Runoff Complete",
+      x: g.tangentRunoutFt + g.superelevationRunoffFt * (2 / 3),
+    });
+  }
+  return stages.sort((a, b) => a.x - b.x);
+};

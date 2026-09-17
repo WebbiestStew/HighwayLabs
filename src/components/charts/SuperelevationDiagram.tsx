@@ -11,7 +11,7 @@ import {
   ReferenceLine,
   Legend,
 } from "recharts";
-import { slopesAtOffset, TRANSITION_STAGES, type TransitionGeometry } from "@/lib/engineering/superelevationProfile";
+import { slopesAtOffset, TRANSITION_STAGES, type TransitionGeometry, type TransitionType } from "@/lib/engineering/superelevationProfile";
 import { formatStation, type UnitSystem } from "@/lib/units";
 
 const REF_ELEV_FT = 100.0;
@@ -26,6 +26,7 @@ export default function SuperelevationDiagram({
   tsStationFt,
   unitSystem,
   axisOfRotation = "centerline",
+  transitionType = "spiral",
 }: {
   geometry: TransitionGeometry;
   lanesPerDirection: number;
@@ -34,6 +35,7 @@ export default function SuperelevationDiagram({
   tsStationFt: number;
   unitSystem: UnitSystem;
   axisOfRotation?: AxisOfRotation;
+  transitionType?: TransitionType;
 }) {
   const totalLength = geometry.tangentRunoutFt + geometry.superelevationRunoffFt;
   const samples = 40;
@@ -66,7 +68,7 @@ export default function SuperelevationDiagram({
     return { x, station: tsStationFt + x, CL, LEP, REP, OuterShoulder };
   });
 
-  const stages = TRANSITION_STAGES(geometry).filter((s) => s.x >= 0);
+  const stages = TRANSITION_STAGES(geometry, transitionType).filter((s) => s.x >= 0);
 
   return (
     <div className="h-full w-full">

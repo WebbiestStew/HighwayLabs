@@ -267,7 +267,7 @@ function InterchangeOpsPage() {
       ])
     ).filter((img): img is NonNullable<typeof img> => img !== null);
 
-    generateMemoPdf({
+    await generateMemoPdf({
       moduleTitle: `Interchange Operations — ${topology.label}`,
       corridorName,
       designSpeedLabel: `${designSpeedMph} mph`,
